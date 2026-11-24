@@ -106,7 +106,7 @@
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
  * 1 to 11 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
- * 11 only asks TrustZone questions); everything after still has the SC7280's
+ * 11 only asks TrustZone questions, 12 has it check the zap shader's signature); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -1802,7 +1802,7 @@ zap_header(uint64_t *phys)
 	uint64_t size = 0;
 	uint32_t segments, hashes;
 
-	header = image_file("fw", "a660_zap.mdt", &size);
+	header = image_file("fw", is_a710 ? "a710_zap.mdt" : "a660_zap.mdt", &size);
 	if (header == NULL) {
 		return false;
 	}
@@ -1813,7 +1813,16 @@ zap_header(uint64_t *phys)
 		    header[2], header[3], segments);
 		return false;
 	}
-	memcpy(&hashes, header + 52 + 32 + 16, sizeof(hashes));
+	/* the segment of hashes is the one whose flags say so (Linux: QCOM_MDT_TYPE_HASH), second in the SC7280's file, third in parrot's */
+	hashes = 0;
+	for (uint32_t i = 1; i < segments && 52 + 32 * (i + 1) <= size; i++) {
+		uint32_t flags;
+
+		memcpy(&flags, header + 52 + 32 * i + 24, sizeof(flags));
+		if ((flags & 7u << 24) == 2u << 24) {
+			memcpy(&hashes, header + 52 + 32 * i + 16, sizeof(hashes));
+		}
+	}
 	printf("adreno: %u: an ELF header of %u segments, %u bytes with its table, then %llu bytes; by the table, %u of hashes\n",
 	    step, segments, 52 + 32 * segments, size - (52 + 32 * segments), hashes);
 	if (52 + 32 * segments + (uint64_t)hashes != size) {
@@ -1836,7 +1845,7 @@ step_zap_signature(void)
 	uint64_t header = 0, answer = ~0ull;
 	int32_t result;
 
-	announce("find the zap shader's header, fw/a660_zap.mdt, in the small image that came with the kernel");
+	announce("find the zap shader's header, fw/a660_zap.mdt (a710: fw/a710_zap.mdt), in the small image that came with the kernel");
 	if (!zap_header(&header)) {
 		return false;
 	}
@@ -3991,9 +4000,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 11) {
-		printf("adreno: a710: steps past 11 do not know this chip yet: stopping at 11\n");
-		last_step = 11;
+	if (is_a710 && last_step > 12) {
+		printf("adreno: a710: steps past 12 do not know this chip yet: stopping at 12\n");
+		last_step = 12;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
