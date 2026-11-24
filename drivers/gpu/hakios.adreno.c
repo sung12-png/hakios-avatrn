@@ -105,10 +105,10 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 16 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
+ * 1 to 17 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
  * its memory behind the SMMU, 14 loads its firmware, 15 starts it,
- * 16 starts its message queues); everything after still has the SC7280's
+ * 16 starts its message queues, 17 has the 3D core powered); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -2469,7 +2469,11 @@ step_core_power(void)
 {
 	static const struct {
 		uint32_t khz, level;
-	} speeds[] = { { 0, 0 }, { 315000, 64 }, { 450000, 128 }, { 550000, 192 } };
+	} sc7280_speeds[] = { { 0, 0 }, { 315000, 64 }, { 450000, 128 }, { 550000, 192 } },
+	    /* parrot: the three lowest of its qcom,gpu-pwrlevels that every speed bin has; the lowest is asked for */
+	    sm7435_speeds[] = { { 0, 0 }, { 295000, 56 }, { 345000, 64 }, { 500000, 128 } };
+	__typeof__(&sc7280_speeds[0]) speeds = is_a710 ? sm7435_speeds : sc7280_speeds;
+	const unsigned speed_count = 4;
 	static struct hfi_perf_table perf;
 	static struct hfi_bw_table bw;
 	uint32_t core_start[2] = { 0, 0 }, start[1] = { 0 }, vote[4] = { 0, 1, 3, HFI_NO_INDEX }, granted = 0, speed = 0;
@@ -2484,7 +2488,7 @@ step_core_power(void)
 		printf("adreno: %u: RPMh's list lacks one of the rails\n", step);
 		return false;
 	}
-	perf.gpu_levels = sizeof(speeds) / sizeof(speeds[0]);
+	perf.gpu_levels = speed_count;
 	for (unsigned i = 0; i < perf.gpu_levels; i++) {
 		perf.gpu[i].khz = speeds[i].khz;
 		perf.gpu[i].acd = 0xffffffff;           /* no adaptive clocking */
@@ -2492,11 +2496,20 @@ step_core_power(void)
 			printf("adreno: %u: RPMh has no level %u for the 3D core's rail\n", step, speeds[i].level);
 			return false;
 		}
+		printf("adreno: %u: %u MHz: level %u asked, level %u of RPMh's list taken\n", step, speeds[i].khz / 1000,
+		    speeds[i].level, gfx[perf.gpu[i].vote & 0xff]);
+		if (is_a710 && gfx[perf.gpu[i].vote & 0xff] != speeds[i].level) {
+			printf("adreno: %u: that is not the level in the phone's table: stopping\n", step);
+			return false;
+		}
+	}
+	if (is_a710) {
+		vote[2] = 1;
 	}
 	perf.gmu_levels = 2;
 	perf.gmu[1].khz = 200000;
 	if (!rail_vote(0, cx, cx_levels, mx, mx_levels, &perf.gmu[0].vote) ||
-	    !rail_vote(48, cx, cx_levels, mx, mx_levels, &perf.gmu[1].vote)) {  /* "minimum SVS", the vendor's choice */
+	    !rail_vote(is_a710 ? 64 : 48, cx, cx_levels, mx, mx_levels, &perf.gmu[1].vote)) {  /* "minimum SVS"; gen7: low SVS */
 		return false;
 	}
 	printf("adreno: %u: votes: 3D core %#x %#x %#x %#x, GMU %#x %#x\n", step, perf.gpu[0].vote, perf.gpu[1].vote,
@@ -2536,7 +2549,7 @@ step_core_power(void)
 
 	announce("ask the GMU to power the 3D core and keep it powered");
 	get(&gmu, "sptprac_pwr_clk_status", GMU_SPTPRAC_PWR_CLK_STATUS);
-	get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
+	get(&gpucc, "gx_gdscr", at_gx_gdscr);
 	put(&gmu, "host2gmu_intr_set", GMU_HOST2GMU_INTR_SET, GMU_CORE_REQUEST);
 	for (int i = 0; i < 5000 && !(granted & GMU_CORE_GRANTED); i++) {
 		sleep_us(100);
@@ -2545,9 +2558,9 @@ step_core_power(void)
 	core_is_on = true;                      /* asked for, at least: to be given back */
 	put(&gmu, "gmu2host_intr_clr", GMU_GMU2HOST_INTR_CLR, GMU_CORE_GRANTED);
 	get(&gmu, "sptprac_pwr_clk_status", GMU_SPTPRAC_PWR_CLK_STATUS);
-	get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
+	get(&gpucc, "gx_gdscr", at_gx_gdscr);
 	get(&gmu, "rpmh_power_state", GMU_RPMH_POWER_STATE);
-	if (!(granted & GMU_CORE_GRANTED) || (rd(gmu.base + GMU_SPTPRAC_PWR_CLK_STATUS) & 0xc0) != 0) {
+	if (!(granted & GMU_CORE_GRANTED) || (rd(gmu.base + GMU_SPTPRAC_PWR_CLK_STATUS) & (is_a710 ? 0x3 : 0xc0)) != 0) {
 		printf("adreno: %u: the GMU does not power the 3D core (gmu2host_intr_info %#x, fw_init_result %#x)\n", step,
 		    granted, rd(gmu.base + GMU_CM3_FW_INIT_RESULT));
 		space_faulted(&gmu_space);
@@ -2556,8 +2569,13 @@ step_core_power(void)
 	if (!hfi_send("\"start\"", HFI_START, start, 1)) {
 		return false;
 	}
-	printf("adreno: %u: measured: the 3D core's clock runs at %u Hz (%u MHz was asked for), the GMU's in it at %u Hz\n", step,
-	    measure_quietly(GPUCC_DEBUG_GX_GFX3D), core_khz / 1000, measure_quietly(GPUCC_DEBUG_GX_GMU));
+	if (is_a710) {
+		printf("adreno: %u: measured: the 3D core's clock runs at %u Hz (%u MHz was asked for)\n", step,
+		    measure_quietly(0x0e), core_khz / 1000);  /* Motorola's debugcc-parrot.c: gx_gfx3d */
+	} else {
+		printf("adreno: %u: measured: the 3D core's clock runs at %u Hz (%u MHz was asked for), the GMU's in it at %u Hz\n", step,
+		    measure_quietly(GPUCC_DEBUG_GX_GFX3D), core_khz / 1000, measure_quietly(GPUCC_DEBUG_GX_GMU));
+	}
 
 	announce("read registers of the 3D core itself (0x3d00000): the first time it has power");
 	get(&gpu, "rbbm_status", RBBM_STATUS);
@@ -4020,9 +4038,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 16) {
-		printf("adreno: a710: steps past 16 do not know this chip yet: stopping at 16\n");
-		last_step = 16;
+	if (is_a710 && last_step > 17) {
+		printf("adreno: a710: steps past 17 do not know this chip yet: stopping at 17\n");
+		last_step = 17;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
