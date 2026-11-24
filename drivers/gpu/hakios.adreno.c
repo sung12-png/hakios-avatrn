@@ -105,8 +105,8 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 3 know it so far, and they only read; everything after still has the SC7280's addresses and
- * is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
+ * 1 to 4 know it so far (4 switches the CX power domain on); everything after still has the SC7280's
+ * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
 #define PARROT_GCC_GPU_CFG_AHB_CBCR     0x81004         /* Linux keeps it on always */
@@ -507,6 +507,10 @@ static struct block gpucc = { "gpucc", 0x03d90000, 0x9000 };
 #define GDSC_HW_CONTROL         (1u << 1)       /* something else than software operates it */
 #define GDSC_POWER_ON           (1u << 31)
 
+/* what step 4 and its helpers read and write; the SC7280's unless gpu_soc=sm7435 changes them */
+static uint32_t at_gcc_gpu_cfg_ahb = GCC_GPU_CFG_AHB_CBCR, at_cx_gdscr = GPUCC_CX_GDSCR,
+    at_cx_hw_ctrl = GPUCC_CX_HW_CTRL, at_gx_gdscr = GPUCC_GX_GDSCR;
+
 static bool
 step_gpucc(void)
 {
@@ -571,9 +575,9 @@ gpucc_answers(void)
 {
 	need(&gcc);
 	need(&gpucc);
-	if (rd(gcc.base + GCC_GPU_CFG_AHB_CBCR) & CBCR_OFF) {
+	if (rd(gcc.base + at_gcc_gpu_cfg_ahb) & CBCR_OFF) {
 		printf("adreno: %u: the GPU clock controller's registers have no clock (gcc gpu_cfg_ahb %#x): step 3\n", step,
-		    rd(gcc.base + GCC_GPU_CFG_AHB_CBCR));
+		    rd(gcc.base + at_gcc_gpu_cfg_ahb));
 		return false;
 	}
 	return true;
@@ -582,7 +586,7 @@ gpucc_answers(void)
 static bool
 cx_is_on(void)
 {
-	return (rd(gpucc.base + GPUCC_CX_GDSCR) | rd(gpucc.base + GPUCC_CX_HW_CTRL)) & GDSC_POWER_ON;
+	return (rd(gpucc.base + at_cx_gdscr) | rd(gpucc.base + at_cx_hw_ctrl)) & GDSC_POWER_ON;
 }
 
 static void stale_stop(void);
@@ -601,8 +605,8 @@ step_cx_power(void)
 		return false;
 	}
 	announce("switch the CX half of the GPU block on (gpu_cx_gdsc): clear the collapse bit of its power switch");
-	gdscr = get(&gpucc, "cx_gdscr", GPUCC_CX_GDSCR);
-	get(&gpucc, "cx_hw_ctrl", GPUCC_CX_HW_CTRL);
+	gdscr = get(&gpucc, "cx_gdscr", at_cx_gdscr);
+	get(&gpucc, "cx_hw_ctrl", at_cx_hw_ctrl);
 	if (cx_is_on()) {
 		/*
 		 * A kernel that kept the GPU for the system to use (adreno_keep) leaves it running when
@@ -611,29 +615,33 @@ step_cx_power(void)
 		 * is taken down as gpu_block_stop() would have, and the start is from nothing.
 		 */
 		printf("adreno: %u: CX is on already: an earlier kernel left the GPU block running; stopping it first\n", step);
+		if (is_a710) {
+			printf("adreno: %u: a710: not expected, and stopping it does not know this chip: stop\n", step);
+			return false;
+		}
 		stale_stop();
 		if (cx_is_on()) {
 			printf("adreno: %u: CX stays on: going on with it as it is\n", step);
 			return true;
 		}
-		gdscr = rd(gpucc.base + GPUCC_CX_GDSCR);
+		gdscr = rd(gpucc.base + at_cx_gdscr);
 	}
 	if (gdscr & GDSC_HW_CONTROL) {
 		printf("adreno: %u: the switch is under hardware control: not ours to operate\n", step);
 		return false;
 	}
-	put(&gpucc, "cx_gdscr", GPUCC_CX_GDSCR, gdscr & ~GDSC_SW_COLLAPSE);
+	put(&gpucc, "cx_gdscr", at_cx_gdscr, gdscr & ~GDSC_SW_COLLAPSE);
 	for (int i = 0; i < 500 && !cx_is_on(); i++) {
 		sleep_us(100);
 	}
-	get(&gpucc, "cx_gdscr", GPUCC_CX_GDSCR);
-	get(&gpucc, "cx_hw_ctrl", GPUCC_CX_HW_CTRL);
+	get(&gpucc, "cx_gdscr", at_cx_gdscr);
+	get(&gpucc, "cx_hw_ctrl", at_cx_hw_ctrl);
 	if (!cx_is_on()) {
 		printf("adreno: %u: CX does not come on\n", step);
 		return false;
 	}
 	printf("adreno: %u: CX is on\n", step);
-	if (rd(gpucc.base + GPUCC_GX_GDSCR) & GDSC_POWER_ON) {
+	if (rd(gpucc.base + at_gx_gdscr) & GDSC_POWER_ON) {
 		/*
 		 * The 3D core kept its power while the rest of the block lost it: an ending that went
 		 * wrong (a GMU that did not answer, before gpu_block_stop() switched the core off
@@ -3819,6 +3827,10 @@ hakios_adreno_init(void)
 		/* parrot's GPU clocks are at gcc + 0x81000: map far enough, before anything maps the block */
 		gcc.size = 0xa0000;
 		gpucc.size = 0xa000;
+		at_gcc_gpu_cfg_ahb = PARROT_GCC_GPU_CFG_AHB_CBCR;
+		at_cx_gdscr = 0x9108;           /* dt: gdsc@3d99108 */
+		at_cx_hw_ctrl = 0x953c;
+		at_gx_gdscr = 0x905c;           /* dt: gdsc@3d9905c */
 	}
 	/* boot-arg gpu_delay=N: begin N seconds later, so the lines come after the boot's own */
 	if (PE_parse_boot_argn("gpu_delay", &adreno_delay_s, sizeof(adreno_delay_s)) && adreno_delay_s &&
@@ -3869,9 +3881,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 3) {
-		printf("adreno: a710: steps past 3 do not know this chip yet: stopping at 3\n");
-		last_step = 3;
+	if (is_a710 && last_step > 4) {
+		printf("adreno: a710: steps past 4 do not know this chip yet: stopping at 4\n");
+		last_step = 4;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
