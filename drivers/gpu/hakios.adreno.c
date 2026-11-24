@@ -105,7 +105,7 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 5 know it so far (4 switches the CX power domain on, 5 starts its clocks); everything after still has the SC7280's
+ * 1 to 6 know it so far (4 switches the CX power domain on, 5 starts its clocks, 6 reads the GMU); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -781,26 +781,37 @@ step_clocks(void)
  * result as "clk_measure"; registers, selections and procedure are its debugcc-yupik.c and
  * clk-debug.c (mainline Linux has no counterpart).
  */
-#define GCC_DEBUG_MUX           0x62000         /* [9:0] which clock goes to the counter */
-#define GCC_DEBUG_MUX_GPUCC     0x146           /* ... the debug output of the GPU's clock controller */
-#define GCC_DEBUG_DIV           0x62004         /* [3:0] divider - 1; both controllers divide by 2 */
-#define GCC_DEBUG_CBCR          0x62008
-#define GCC_XO_DIV4_CBCR        0x6200c         /* the counter's time base: the crystal / 4, 4.8 MHz */
-#define GCC_MEASURE_CTL         0x62038         /* [19:0] how many ticks of the time base to count for */
+static uint32_t at_dbg_mux = 0x62000;         /* [9:0] which clock goes to the counter */
+#define GCC_DEBUG_MUX           at_dbg_mux
+static uint32_t at_dbg_mux_gpucc = 0x146;           /* ... the debug output of the GPU's clock controller */
+#define GCC_DEBUG_MUX_GPUCC     at_dbg_mux_gpucc
+static uint32_t at_dbg_div = 0x62004;         /* [3:0] divider - 1; both controllers divide by 2 */
+#define GCC_DEBUG_DIV           at_dbg_div
+static uint32_t at_dbg_cbcr = 0x62008;
+#define GCC_DEBUG_CBCR          at_dbg_cbcr
+static uint32_t at_dbg_xo4 = 0x6200c;         /* the counter's time base: the crystal / 4, 4.8 MHz */
+#define GCC_XO_DIV4_CBCR        at_dbg_xo4
+static uint32_t at_dbg_ctl = 0x62038;         /* [19:0] how many ticks of the time base to count for */
+#define GCC_MEASURE_CTL         at_dbg_ctl
 #define MEASURE_RUN             (1u << 20)
 #define MEASURE_CLEAR           (1u << 21)
-#define GCC_MEASURE_STATUS      0x6203c         /* [24:0] the count */
+static uint32_t at_dbg_status = 0x6203c;         /* [24:0] the count */
+#define GCC_MEASURE_STATUS      at_dbg_status
 #define MEASURE_DONE            (1u << 25)
 #define MEASURE_BRIEF           0x1000          /* ticks: a millisecond */
 #define MEASURE_FULL            0x20000         /* 27 ms */
 #define MEASURE_FAILED          0xffffffffu
-#define GPUCC_DEBUG_DIV         0x10fc
-#define GPUCC_DEBUG_CBCR        0x1100
-#define GPUCC_DEBUG_MUX         0x1568          /* [7:0] which of the GPU's clocks */
+static uint32_t at_dbg_gdiv = 0x10fc;
+#define GPUCC_DEBUG_DIV         at_dbg_gdiv
+static uint32_t at_dbg_gcbcr = 0x1100;
+#define GPUCC_DEBUG_CBCR        at_dbg_gcbcr
+static uint32_t at_dbg_gmux = 0x1568;          /* [7:0] which of the GPU's clocks */
+#define GPUCC_DEBUG_MUX         at_dbg_gmux
 #define GPUCC_DEBUG_CXO_AON     0x0b
 #define GPUCC_DEBUG_GX_GFX3D    0x0d            /* the 3D core's own clock */
 #define GPUCC_DEBUG_GX_GMU      0x11
-#define GPUCC_DEBUG_AHB         0x12
+static uint32_t at_dbg_sel_ahb = 0x12;
+#define GPUCC_DEBUG_AHB         at_dbg_sel_ahb
 #define GPUCC_DEBUG_CX_GMU      0x1a
 #define GPUCC_DEBUG_CXO         0x1b
 #define GPUCC_DEBUG_HUB_CX_INT  0x1c
@@ -892,7 +903,7 @@ measure_clocks(void)
 	} clocks[] = {
 		{ "cx_gmu (200 MHz was asked for)", GPUCC_DEBUG_CX_GMU }, { "hub_cx_int (from 150 MHz)", GPUCC_DEBUG_HUB_CX_INT },
 		{ "hub_aon", GPUCC_DEBUG_HUB_AON }, { "cb", GPUCC_DEBUG_CB }, { "cxo_aon", GPUCC_DEBUG_CXO_AON },
-		{ "gx_gmu (should be off)", GPUCC_DEBUG_GX_GMU }, { "ahb, THE ONE IN QUESTION,", GPUCC_DEBUG_AHB },
+		{ "gx_gmu (should be off)", GPUCC_DEBUG_GX_GMU }, { "ahb, THE ONE IN QUESTION,", 0x12 /* GPUCC_DEBUG_AHB (SC7280) */ },
 	};
 	uint32_t hz, ahb_hz = MEASURE_FAILED;
 
@@ -1007,12 +1018,58 @@ static struct block cx_misc = { "cx_misc", 0x03d9e000, 0x1000 };
 #define CX_MISC_SYSTEM_CACHE_CNTL_0 (4 * 1)
 #define CX_MISC_SYSTEM_CACHE_CNTL_1 (4 * 2)
 
+/* a710, before anything in the GPU block is read: CX, the GMU's clock, and the register bus clock measured */
+static bool
+a710_ready(void)
+{
+	uint32_t gmu_cbcr, ahb, gmu_hz, hub_hz;
+
+	if (!gpucc_answers()) {
+		return false;
+	}
+	gmu_cbcr = rd(gpucc.base + 0x913c);
+	if (!cx_is_on() || (gmu_cbcr & (CBCR_ENABLE | CBCR_OFF)) != CBCR_ENABLE) {
+		printf("adreno: %u: needs CX on and the GMU's clock running (cx_gmu %#x): steps 4 and 5\n", step, gmu_cbcr);
+		return false;
+	}
+	ahb = measure(at_dbg_sel_ahb);
+	gmu_hz = measure(0x1e);         /* gpu_cc_cx_gmu_clk */
+	hub_hz = measure(0x2f);         /* gpu_cc_hub_aon_clk */
+	printf("adreno: %u: a710: measured: register bus %u Hz, GMU %u Hz (200 MHz set), hub %u Hz (150 MHz set)\n", step,
+	    ahb, gmu_hz, hub_hz);
+	if (ahb == MEASURE_FAILED || ahb < 1000000 || gmu_hz == MEASURE_FAILED || gmu_hz < 1000000) {
+		printf("adreno: %u: a710: without those clocks a register of the GPU block would not answer: not touching it\n", step);
+		return false;
+	}
+	return true;
+}
+
 static bool
 step_first_words(void)
 {
 	uint64_t start, nanos;
 	uint32_t before, hz;
 
+	if (is_a710) {
+		if (!a710_ready()) {
+			return false;
+		}
+		announce("a710: read the GMU (0x3d6a000), the registers JosephMontfort's garnet port reads: the first words from the GPU");
+		get(&gmu, "cm3_sysreset", GMU_CM3_SYSRESET);
+		get(&gmu, "always_on_counter_h", GMU_ALWAYS_ON_COUNTER_H);
+		get(&gmu, "always_on_counter_l", GMU_ALWAYS_ON_COUNTER_L);
+		get(&gmu, "cm3_boot_config", GMU_CM3_BOOT_CONFIG);
+		get(&gmu, "cm3_fw_init_result", GMU_CM3_FW_INIT_RESULT);
+		get(&gmu, "cm3_cfg", GMU_CM3_CFG);
+		start = mach_absolute_time();
+		before = rd(gmu.base + GMU_ALWAYS_ON_COUNTER_L);
+		sleep_ms(10);
+		hz = rd(gmu.base + GMU_ALWAYS_ON_COUNTER_L) - before;
+		absolutetime_to_nanoseconds(mach_absolute_time() - start, &nanos);
+		hz = nanos ? (uint32_t)((uint64_t)hz * NSEC_PER_SEC / nanos) : 0;
+		printf("adreno: %u: a710: the GMU's counter counts at %u Hz (the crystal is 19200000)\n", step, hz);
+		return true;
+	}
 	if (!cx_ready()) {
 		return false;
 	}
@@ -3866,6 +3923,10 @@ hakios_adreno_init(void)
 		at_cx_gdscr = 0x9108;           /* dt: gdsc@3d99108 */
 		at_cx_hw_ctrl = 0x953c;
 		at_gx_gdscr = 0x905c;           /* dt: gdsc@3d9905c */
+		/* the frequency counter: Motorola's debugcc-parrot.c */
+		at_dbg_mux = 0x72000; at_dbg_mux_gpucc = 0x16e; at_dbg_div = 0x72004; at_dbg_cbcr = 0x72008;
+		at_dbg_xo4 = 0x7200c; at_dbg_ctl = 0x72038; at_dbg_status = 0x7203c;
+		at_dbg_gdiv = 0x9270; at_dbg_gcbcr = 0x9274; at_dbg_gmux = 0x9564; at_dbg_sel_ahb = 0x16;
 	}
 	/* boot-arg gpu_delay=N: begin N seconds later, so the lines come after the boot's own */
 	if (PE_parse_boot_argn("gpu_delay", &adreno_delay_s, sizeof(adreno_delay_s)) && adreno_delay_s &&
@@ -3916,9 +3977,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 5) {
-		printf("adreno: a710: steps past 5 do not know this chip yet: stopping at 5\n");
-		last_step = 5;
+	if (is_a710 && last_step > 6) {
+		printf("adreno: a710: steps past 6 do not know this chip yet: stopping at 6\n");
+		last_step = 6;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
