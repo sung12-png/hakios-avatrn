@@ -105,10 +105,11 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 18 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
+ * 1 to 19 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
  * its memory behind the SMMU, 14 loads its firmware, 15 starts it,
- * 16 starts its message queues, 17 has the 3D core powered, 18 gives the 3D core memory and microcode); everything after still has the SC7280's
+ * 16 starts its message queues, 17 has the 3D core powered, 18 gives the 3D core memory and microcode,
+ * 19 loads the zap shader); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -2826,7 +2827,8 @@ step_core_space(void)
  * (Step 21 is what tells whether the 3D core gets out of secure mode with it.) There was a
  * boot-arg adreno_zap=0 for the second and later runs of a started phone; nothing reads it now.
  */
-#define ZAP_MEMORY              0x8b71a000ull
+static uint64_t zap_memory_at = 0x8b71a000ull;  /* (a710: parrot's, set with its other addresses) */
+#define ZAP_MEMORY              zap_memory_at
 #define ZAP_MEMORY_SIZE         0x2000u
 #define SCM_PAS_MEM_SETUP       SCM_CALL(2, 2)
 #define SCM_THREE_VALUES        3
@@ -2854,7 +2856,8 @@ step_zap_load(void)
 	announce("ask TrustZone to give up a zap shader that a kernel before this one may have left");
 	printf("adreno: %u: %s\n", step, zap_unload() ? "TrustZone has given up what it had (it says so with none, too)" :
 	    "TRUSTZONE DOES NOT GIVE IT UP: the next answers tell whether it keeps one");
-	segment = image_file("fw", "a660_zap.b02", &size);
+	/* the loadable segment: the third of the SC7280's file, the second of parrot's (whose third is the hashes) */
+	segment = image_file("fw", is_a710 ? "a710_zap.b01" : "a660_zap.b02", &size);
 	if (segment == NULL || size == 0 || size > 0x1000) {
 		return false;
 	}
@@ -2865,6 +2868,10 @@ step_zap_load(void)
 	}
 	if (scm("to take the zap shader's signature", SCM_64 | SCM_SIP | SCM_PAS_INIT_IMAGE, SCM_VALUE_AND_BUFFER, PAS_GPU,
 	    header, 0, &answer) != 0 || answer != 0) {
+		if (is_a710) {
+			printf("adreno: %u: TrustZone does not take the signature (%#llx): stopping\n", step, answer);
+			return false;
+		}
 		printf("adreno: %u: TrustZone does not take the signature (%#llx): TAKEN TO MEAN THAT IT KEEPS A ZAP SHADER FROM "
 		    "BEFORE, which is used as it is\n", step, answer);
 		zap_is_loaded = true;
@@ -2872,6 +2879,10 @@ step_zap_load(void)
 	}
 	if (scm("where the image will be", SCM_64 | SCM_SIP | SCM_PAS_MEM_SETUP, SCM_THREE_VALUES, PAS_GPU, ZAP_MEMORY, 0x1000,
 	    &answer) != 0 || answer != 0) {
+		if (is_a710) {
+			printf("adreno: %u: TrustZone does not take the place (%#llx): stopping\n", step, answer);
+			return false;
+		}
 		printf("adreno: %u: TrustZone does not take the place (%#llx): TAKEN TO MEAN THAT IT KEEPS A ZAP SHADER FROM "
 		    "BEFORE, which is used as it is\n", step, answer);
 		zap_is_loaded = true;
@@ -3979,6 +3990,7 @@ hakios_adreno_init(void)
 		/* parrot's GPU clocks are at gcc + 0x81000: map far enough, before anything maps the block */
 		gcc.size = 0xa0000;
 		gpucc.size = 0xa000;
+		zap_memory_at = 0x89e1a000ull;  /* dt: gpu_microcode_region@89e1a000, 0x2000 */
 		pdc.phys = 0x0b270000;          /* dt: qcom,gmu "gmu_pdc" 0xb270000 0x10000 */
 		rscc.phys = 0x03d50000;         /* dt: kgsl reg 0x3d50000 0x10000 (JosephMontfort's garnet port) */
 		rscc.size = 0x10000;
@@ -4041,9 +4053,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 18) {
-		printf("adreno: a710: steps past 18 do not know this chip yet: stopping at 18\n");
-		last_step = 18;
+	if (is_a710 && last_step > 19) {
+		printf("adreno: a710: steps past 19 do not know this chip yet: stopping at 19\n");
+		last_step = 19;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
