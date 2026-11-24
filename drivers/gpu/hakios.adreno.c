@@ -105,7 +105,7 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 4 know it so far (4 switches the CX power domain on); everything after still has the SC7280's
+ * 1 to 5 know it so far (4 switches the CX power domain on, 5 starts its clocks); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -709,6 +709,41 @@ step_clocks(void)
 	if (!cx_is_on()) {
 		printf("adreno: %u: CX is off: step 4\n", step);
 		return false;
+	}
+	if (is_a710) {
+		/*
+		 * Motorola's gcc-parrot.c and gpucc-parrot.c. The GMU at 200 MHz and the hub at
+		 * 150 MHz, both from the SoC's 300 MHz tap (source 6): none of the GPU's own PLLs.
+		 */
+		announce("a710: vote for the 300 MHz tap; the GPU's bus clocks in parrot's gcc on");
+		set(&gcc, "pll votes", 0x62000, 1u << 15 | 1u << 16);
+		if (!clock_on(&gcc, "gpu_memnoc_gfx", 0x81010, false) ||
+		    !clock_on(&gcc, "gpu_snoc_dvm_gfx", 0x81018, false)) {
+			return false;
+		}
+		announce("a710: Linux's two workarounds in the GPU's clock controller (0x9534, cx_gmu sleep values)");
+		put(&gpucc, "0x9534", 0x9534, 0);
+		set(&gpucc, "cx_gmu wake and sleep", 0x913c, 0xf0);
+		announce("a710: the GMU's clock to 200 MHz, the hub's to 150 MHz");
+		if (!clock_source("gmu_clk_src", 0x9318, RCG_GPLL0_DIV(3)) ||
+		    !clock_source("hub_clk_src", 0x93ec, RCG_GPLL0_DIV(4))) {
+			return false;
+		}
+		announce("a710: the clocks of the register bus, the GMU, the hub and the SMMU on");
+		if (!clock_on(&gpucc, "ahb", 0x911c, false) ||
+		    !clock_on(&gpucc, "crc_ahb", 0x9120, false) ||
+		    !clock_on(&gpucc, "cx_snoc_dvm", 0x9130, false) ||
+		    !clock_on(&gpucc, "sleep", 0x9134, false) ||
+		    !clock_on(&gpucc, "cxo", 0x9144, true) ||
+		    !clock_on(&gpucc, "hub_aon", 0x93e8, true) ||
+		    !clock_on(&gpucc, "hub_cx_int", 0x9148, true) ||
+		    !clock_on(&gpucc, "memnoc_gfx", 0x9150, false) ||
+		    !clock_on(&gpucc, "cx_gmu", 0x913c, true) ||
+		    !clock_on(&gpucc, "smmu vote", 0x7000, false)) {
+			return false;
+		}
+		printf("adreno: %u: a710: clocks set (their rates are not measured on this chip yet)\n", step);
+		return true;
 	}
 	announce("in the global clock controller: ask for the 300 MHz tap for the GPU; the GPU's bus and memory clocks on");
 	set(&gcc, "pll votes", GCC_PLL_VOTE, GCC_PLL_VOTE_GPU_DIV);
@@ -3881,9 +3916,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 4) {
-		printf("adreno: a710: steps past 4 do not know this chip yet: stopping at 4\n");
-		last_step = 4;
+	if (is_a710 && last_step > 5) {
+		printf("adreno: a710: steps past 5 do not know this chip yet: stopping at 5\n");
+		last_step = 5;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
