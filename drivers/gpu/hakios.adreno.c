@@ -105,12 +105,12 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 21 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
+ * 1 to 22 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
  * its memory behind the SMMU, 14 loads its firmware, 15 starts it,
  * 16 starts its message queues, 17 has the 3D core powered, 18 gives the 3D core memory and microcode,
  * 19 loads the zap shader, 20 starts the 3D core's command processor,
- * 21 leaves secure mode); everything after still has the SC7280's
+ * 21 leaves secure mode, 22 draws a picture); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -3160,7 +3160,8 @@ ring_fill(uint32_t top, uint32_t bottom, uint32_t red, uint32_t green, uint32_t 
 	ring_register(RB_2D_SRC_SOLID_C0 + 3, 255);
 	ring_register(RB_2D_BLIT_CNTL, BLIT_SOLID_8888);
 	ring_register(GRAS_2D_BLIT_CNTL, BLIT_SOLID_8888);
-	ring_register(SP_2D_DST_FORMAT, 1 | FORMAT_8888 << 3 | 0xfu << 12);
+	/* (Mesa's a6xx.xml: SP_A2D_OUTPUT_INFO is at 0xa9bf on a7xx) */
+	ring_register(is_a710 ? 0xa9bf : SP_2D_DST_FORMAT, 1 | FORMAT_8888 << 3 | 0xfu << 12);
 	ring_register(RB_2D_PIXEL_CNTL, 0);
 	ring_register(RB_2D_DST_INFO, DST_BGRA_LINEAR);
 	ring_register(RB_2D_DST, CORE_TARGET_ADDRESS);
@@ -3189,7 +3190,19 @@ step_frame(void)
 	}
 	ring_command(CP_SET_MARKER, 1);
 	ring(12);                               /* "2D blits follow" */
-	ring_register(RB_CCU_CNTL, 0x10000004); /* Mesa's for this GPU when it draws straight into memory */
+	if (is_a710) {
+		/*
+		 * a7xx (Mesa's a6xx.xml): where the colour cache lies in the on-chip memory is
+		 * RB_CCU_CACHE_CNTL (0x88e5), colour offset in bits 31:23 in units of 4K -- here 64K,
+		 * well inside this GPU's 512K. Whatever the cache holds is thrown away first.
+		 */
+		ring_command(CP_EVENT_WRITE, 1);
+		ring(0x19);                             /* CCU_INVALIDATE_COLOR */
+		ring_command(CP_WAIT_FOR_IDLE, 0);
+		ring_register(0x88e5, 0x10u << 23);
+	} else {
+		ring_register(RB_CCU_CNTL, 0x10000004); /* Mesa's for this GPU when it draws straight into memory */
+	}
 	ring_fill(0, 800, 255, 128, 0);         /* orange */
 	ring_fill(800, 1600, 255, 255, 255);
 	ring_fill(1600, TARGET_HEIGHT, 0, 128, 255);
@@ -3199,16 +3212,31 @@ step_frame(void)
 	 * tu6_emit_event_write: the events named ..._TS): the core takes those three words whether
 	 * they are there or not.
 	 */
-	ring_command(CP_EVENT_WRITE, 4);
-	ring(EVENT_FLUSH_COLOR);
-	ring(CORE_SCRATCH_ADDRESS + 32);
-	ring(0);
-	ring(0x0c0c0c0c);
-	ring_command(CP_EVENT_WRITE, 4);
-	ring(EVENT_CACHE_FLUSH);
-	ring(CORE_SCRATCH_ADDRESS + 16);
-	ring(0);
-	ring(0x0d0e0d0e);
+	if (is_a710) {
+		/* a7xx's form (Linux a7xx_submit): the event, bit 27 "write this word there", address, word */
+		ring_command(CP_WAIT_FOR_IDLE, 0);
+		ring_command(CP_EVENT_WRITE, 4);
+		ring(0x21 | 1u << 27);                  /* CCU_CLEAN_COLOR */
+		ring(CORE_SCRATCH_ADDRESS + 32);
+		ring(0);
+		ring(0x0c0c0c0c);
+		ring_command(CP_EVENT_WRITE, 4);
+		ring(0x31 | 1u << 27);                  /* CACHE_CLEAN */
+		ring(CORE_SCRATCH_ADDRESS + 16);
+		ring(0);
+		ring(0x0d0e0d0e);
+	} else {
+		ring_command(CP_EVENT_WRITE, 4);
+		ring(EVENT_FLUSH_COLOR);
+		ring(CORE_SCRATCH_ADDRESS + 32);
+		ring(0);
+		ring(0x0c0c0c0c);
+		ring_command(CP_EVENT_WRITE, 4);
+		ring(EVENT_CACHE_FLUSH);
+		ring(CORE_SCRATCH_ADDRESS + 16);
+		ring(0);
+		ring(0x0d0e0d0e);
+	}
 	ring_command(CP_WAIT_FOR_IDLE, 0);
 	if (!ring_run("fill a picture")) {
 		return false;
@@ -4124,9 +4152,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 21) {
-		printf("adreno: a710: steps past 21 do not know this chip yet: stopping at 21\n");
-		last_step = 21;
+	if (is_a710 && last_step > 22) {
+		printf("adreno: a710: steps past 22 do not know this chip yet: stopping at 22\n");
+		last_step = 22;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
