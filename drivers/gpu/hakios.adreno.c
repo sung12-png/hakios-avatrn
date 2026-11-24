@@ -100,6 +100,16 @@
 #include <sys/stat.h>
 #include <sys/systm.h>
 #include <vm/vm_kern.h>
+#include <kern/thread.h>
+#include <IOKit/IOLib.h>
+
+/*
+ * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
+ * 1 to 3 know it so far, and they only read; everything after still has the SC7280's addresses and
+ * is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
+ */
+static bool is_a710;
+#define PARROT_GCC_GPU_CFG_AHB_CBCR     0x81004         /* Linux keeps it on always */
 
 extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 extern vm_offset_t ml_io_map_wcomb(vm_offset_t phys_addr, vm_size_t size);
@@ -388,6 +398,14 @@ show_rpmh_resource(const char *name)
 static bool
 step_outside(void)
 {
+	if (is_a710) {
+		announce("a710: read the clock of the GPU's registers (parrot's gcc) and the names of its rails");
+		get(&gcc, "gpu_cfg_ahb (parrot)", PARROT_GCC_GPU_CFG_AHB_CBCR);
+		show_rpmh_resource("gfx.lvl");
+		show_rpmh_resource("cx.lvl");
+		show_rpmh_resource("mx.lvl");
+		return true;
+	}
 	announce("read the GPU's clocks in the global clock controller (registers the touch screen driver uses too)");
 	get(&gcc, "pll votes", GCC_PLL_VOTE);
 	get(&gcc, "gpu_cfg_ahb", GCC_GPU_CFG_AHB_CBCR);
@@ -434,6 +452,12 @@ static bool
 step_fuses(void)
 {
 	uint32_t bin, gaming;
+
+	if (is_a710) {
+		announce("a710: the fuses are not read (protected under this hypervisor): speed bin 0");
+		speed_bin = 0;
+		return true;
+	}
 
 	announce("read the GPU's fuses in the error-corrected copy (0x784000), which Linux reads");
 	bin = get8(&qfprom, "speed bin, low", QFPROM_CORRECTED + QFPROM_GPU_SPEED_BIN);
@@ -486,6 +510,25 @@ static struct block gpucc = { "gpucc", 0x03d90000, 0x9000 };
 static bool
 step_gpucc(void)
 {
+	if (is_a710) {
+		uint32_t cbcr;
+
+		announce("a710: look that the GPU registers' clock runs, then only read its clock controller");
+		cbcr = get(&gcc, "gpu_cfg_ahb (parrot)", PARROT_GCC_GPU_CFG_AHB_CBCR);
+		if (cbcr & CBCR_OFF) {
+			printf("adreno: %u: it is off (%#x): reading the clock controller would reset the phone: stop\n", step, cbcr);
+			return false;
+		}
+		gpucc.size = 0xa000;
+		get(&gpucc, "cx_gdscr", 0x9108);
+		get(&gpucc, "cx_hw_ctrl", 0x953c);
+		get(&gpucc, "gx_gdscr", 0x905c);
+		get(&gpucc, "gx_sw_reset", 0x9058);
+		get(&gpucc, "gx_acd_reset", 0x9358);
+		get(&gpucc, "gx_domain_misc", 0x9504);
+		get(&gpucc, "gx 0x9034 (the GMU's firmware polls it)", 0x9034);
+		return true;
+	}
 	announce("make sure the clock of the GPU clock controller's registers runs (gcc_gpu_cfg_ahb)");
 	if ((set(&gcc, "gpu_cfg_ahb", GCC_GPU_CFG_AHB_CBCR, CBCR_ENABLE) & CBCR_OFF) &&
 	    !wait_for(&gcc, GCC_GPU_CFG_AHB_CBCR, CBCR_OFF, 0, 10)) {
@@ -3753,8 +3796,41 @@ start_by_itself(void)
  * as long as the steps and the watch after them last, nothing else writes to the log, so that
  * its end -- all that the loader's notes keep -- is about what is being done here.
  */
+static void adreno_run(void);
+
+static uint32_t adreno_delay_s;
+
+static void
+adreno_delayed(__unused void *parameter, __unused wait_result_t result)
+{
+	IOSleep(adreno_delay_s * 1000);
+	adreno_run();
+	thread_terminate(current_thread());
+}
+
 void
 hakios_adreno_init(void)
+{
+	char soc[16] = { 0 };
+	thread_t thread;
+
+	is_a710 = PE_parse_boot_arg_str("gpu_soc", soc, sizeof(soc)) && strcmp(soc, "sm7435") == 0;
+	if (is_a710) {
+		/* parrot's GPU clocks are at gcc + 0x81000: map far enough, before anything maps the block */
+		gcc.size = 0xa0000;
+		gpucc.size = 0xa000;
+	}
+	/* boot-arg gpu_delay=N: begin N seconds later, so the lines come after the boot's own */
+	if (PE_parse_boot_argn("gpu_delay", &adreno_delay_s, sizeof(adreno_delay_s)) && adreno_delay_s &&
+	    adreno_delay_s <= 300 && kernel_thread_start(adreno_delayed, NULL, &thread) == KERN_SUCCESS) {
+		thread_deallocate(thread);
+		return;
+	}
+	adreno_run();
+}
+
+static void
+adreno_run(void)
 {
 	static const char *const what[] = {
 		"", "the clocks outside", "the fuses", "the clock controller", "the CX half's power", "the clocks", "the first words",
@@ -3793,6 +3869,10 @@ hakios_adreno_init(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
+	if (is_a710 && last_step > 3) {
+		printf("adreno: a710: steps past 3 do not know this chip yet: stopping at 3\n");
+		last_step = 3;
+	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
 
