@@ -107,7 +107,7 @@
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
  * 1 to 11 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
- * its memory behind the SMMU, 14 loads its firmware); everything after still has the SC7280's
+ * its memory behind the SMMU, 14 loads its firmware, 15 starts it); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -2115,22 +2115,38 @@ step_gmu_start(void)
 	rsc_awake = true;
 	put(&gmu, "cx_falnext_intf", GMU_CX_FALNEXT_INTF, 1);
 	put(&gmu, "cx_fal_intf", GMU_CX_FAL_INTF, 1);
-	put(&gmu, "general_7", GMU_GENERAL_7, 1);
+	if (!is_a710) {
+		put(&gmu, "general_7", GMU_GENERAL_7, 1);
+	}
 	put(&gmu, "cm3_fw_init_result", GMU_CM3_FW_INIT_RESULT, 0);
 	put(&gmu, "cm3_boot_config", GMU_CM3_BOOT_CONFIG, 2);
 	put(&gmu, "hfi_qtbl_addr", GMU_HFI_QTBL_ADDR, GMU_HFI_ADDRESS);
 	put(&gmu, "hfi_qtbl_info", GMU_HFI_QTBL_INFO, 1);
-	put(&gmu, "ahb_fence_range_0", GMU_AHB_FENCE_RANGE_0, 1u << 31 | (0xa << 2) << 18 | 0x8a0);
+	put(&gmu, "ahb_fence_range_0", GMU_AHB_FENCE_RANGE_0, 1u << 31 | (is_a710 ? 0x32u : 0xau << 2) << 18 | 0x8a0);
 	put(&gmu, "cm3_cfg", GMU_CM3_CFG, 0x4052);
 	put(&gbif, "halt", GBIF_HALT, 0);
-	put(&gmu, "pwr_col_cp_resp", GMU_PWR_COL_CP_RESP, 0);
-	put(&gmu, "hfi_sfr_addr", GMU_HFI_SFR_ADDR, GMU_CHIP);
-	put(&gmu, "pwr_col_cp_msg", GMU_PWR_COL_CP_MSG, GMU_LOG_ADDRESS | (GMU_LOG_SIZE / 4096 - 1));
+	if (is_a710) {
+		/* Adreno 710: as JosephMontfort's garnet port (same SoC) sets it up */
+		for (unsigned i = 0; i < 4; i++) {
+			put(&gbif, "qsb_side", 4 * 0x03 + 4 * i, 0x00071620);
+		}
+		put(&gmu, "general_10 (chip id)", GMU_WORD(0x51cf), 0x07010000);
+		put(&gmu, "general_8 (log)", GMU_WORD(0x51cd), (GMU_LOG_ADDRESS & 0xfffff000) | ((GMU_LOG_SIZE / 4096 - 1) & 0xff));
+		put(&gmu, "general_9 (log write pointer)", GMU_WORD(0x51ce), 0);
+	} else {
+		put(&gmu, "pwr_col_cp_resp", GMU_PWR_COL_CP_RESP, 0);
+		put(&gmu, "hfi_sfr_addr", GMU_HFI_SFR_ADDR, GMU_CHIP);
+		put(&gmu, "pwr_col_cp_msg", GMU_PWR_COL_CP_MSG, GMU_LOG_ADDRESS | (GMU_LOG_SIZE / 4096 - 1));
+	}
 	put(&gmu, "sys_bus_config", GMU_SYS_BUS_CONFIG, 1);
 	put(&gmu, "icache_config", GMU_ICACHE_CONFIG, 1);
 	put(&gmu, "dcache_config", GMU_DCACHE_CONFIG, 1);
-	put(&gmu, "pwr_col_inter_frame_ctrl", GMU_PWR_COL_INTER_FRAME_CTRL, 0x9c40400);
-	set(&gmu, "rpmh_ctrl", GMU_RPMH_CTRL, GMU_RPMH_CTRL_ALL);
+	if (!is_a710) {
+		put(&gmu, "pwr_col_inter_frame_ctrl", GMU_PWR_COL_INTER_FRAME_CTRL, 0x9c40400);
+	}
+	if (!is_a710) {
+		set(&gmu, "rpmh_ctrl", GMU_RPMH_CTRL, GMU_RPMH_CTRL_ALL);
+	}
 	put(&gmu, "gmu2host_intr_clr", GMU_GMU2HOST_INTR_CLR, 0xffffffff);
 
 	gmu_runs = true;
@@ -2345,13 +2361,13 @@ gmu_post_mortem(void)
 		    gmu_data(GMU_STATE_ADDRESS + 4 * i + 24), gmu_data(GMU_STATE_ADDRESS + 4 * i + 28));
 	}
 	rscc_show();
-	get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
-	get(&gpucc, "gx_sw_reset", GPUCC_GX_SW_RESET);
-	get(&gpucc, "gx_domain_misc", GPUCC_GX_DOMAIN_MISC);
-	get(&gpucc, "pll0 mode", GPUCC_PLL0_MODE);
-	get(&gpucc, "pll0 multiplier", GPUCC_PLL0_MODE + 4);
-	get(&gpucc, "pll1 mode", GPUCC_PLL1_MODE);
-	get(&gpucc, "pll1 multiplier", GPUCC_PLL1_MODE + 4);
+	if (!is_a710) get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
+	if (!is_a710) get(&gpucc, "gx_sw_reset", GPUCC_GX_SW_RESET);
+	if (!is_a710) get(&gpucc, "gx_domain_misc", GPUCC_GX_DOMAIN_MISC);
+	if (!is_a710) get(&gpucc, "pll0 mode", GPUCC_PLL0_MODE);
+	if (!is_a710) get(&gpucc, "pll0 multiplier", GPUCC_PLL0_MODE + 4);
+	if (!is_a710) get(&gpucc, "pll1 mode", GPUCC_PLL1_MODE);
+	if (!is_a710) get(&gpucc, "pll1 multiplier", GPUCC_PLL1_MODE + 4);
 	get(&gmu, "rpmh_power_state", GMU_RPMH_POWER_STATE);
 	get(&gmu, "sptprac_pwr_clk_status", GMU_SPTPRAC_PWR_CLK_STATUS);
 	get(&gmu, "ao_host_interrupt_status", GMU_AO_HOST_INTERRUPT_STATUS);
@@ -3129,12 +3145,12 @@ step_frame(void)
 static void
 gx_off(void)
 {
-	uint32_t gx = get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
+	uint32_t gx = get(&gpucc, "gx_gdscr", at_gx_gdscr);
 
 	if (gx & GDSC_POWER_ON) {
-		put(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR, gx | GDSC_SW_COLLAPSE);
-		wait_for(&gpucc, GPUCC_GX_GDSCR, GDSC_POWER_ON, 0, 100);
-		get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
+		put(&gpucc, "gx_gdscr", at_gx_gdscr, gx | GDSC_SW_COLLAPSE);
+		wait_for(&gpucc, at_gx_gdscr, GDSC_POWER_ON, 0, 100);
+		get(&gpucc, "gx_gdscr", at_gx_gdscr);
 	}
 }
 
@@ -3227,7 +3243,7 @@ gpu_block_stop(void)
 			get(&gmu, "ao_gpu_cx_busy_status", GMU_AO_GPU_CX_BUSY_STATUS);
 		}
 		get(&gmu, "sptprac_pwr_clk_status", GMU_SPTPRAC_PWR_CLK_STATUS);
-		get(&gpucc, "gx_gdscr", GPUCC_GX_GDSCR);
+		get(&gpucc, "gx_gdscr", at_gx_gdscr);
 		gmu_talks = false;
 	}
 	if (gmu_runs) {
@@ -3278,12 +3294,12 @@ gpu_block_stop(void)
 	 * a6xx_gmu_suspend). The switch takes votes; ours is all this withdraws.
 	 */
 	if (power_off && gpucc_answers()) {
-		put(&gpucc, "cx_gdscr", GPUCC_CX_GDSCR, rd(gpucc.base + GPUCC_CX_GDSCR) | GDSC_SW_COLLAPSE);
+		put(&gpucc, "cx_gdscr", at_cx_gdscr, rd(gpucc.base + at_cx_gdscr) | GDSC_SW_COLLAPSE);
 		for (int i = 0; i < 1000 && cx_is_on(); i++) {
 			sleep_us(100);
 		}
-		get(&gpucc, "cx_gdscr", GPUCC_CX_GDSCR);
-		get(&gpucc, "cx_hw_ctrl", GPUCC_CX_HW_CTRL);
+		get(&gpucc, "cx_gdscr", at_cx_gdscr);
+		get(&gpucc, "cx_hw_ctrl", at_cx_hw_ctrl);
 		cx_off = !cx_is_on();
 	}
 }
@@ -4001,9 +4017,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 14) {
-		printf("adreno: a710: steps past 14 do not know this chip yet: stopping at 14\n");
-		last_step = 14;
+	if (is_a710 && last_step > 15) {
+		printf("adreno: a710: steps past 15 do not know this chip yet: stopping at 15\n");
+		last_step = 15;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
