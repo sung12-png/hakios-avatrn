@@ -105,10 +105,10 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 17 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
+ * 1 to 18 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
  * its memory behind the SMMU, 14 loads its firmware, 15 starts it,
- * 16 starts its message queues, 17 has the 3D core powered); everything after still has the SC7280's
+ * 16 starts its message queues, 17 has the 3D core powered, 18 gives the 3D core memory and microcode); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -2766,8 +2766,11 @@ step_core_space(void)
 		return false;
 	}
 	PE_parse_boot_argn("adreno_stream1", &stream1, sizeof(stream1));
-	announce("make the 3D core's memory: its ring, its microcode (fw/a660_sqe.fw), a page to try writing to");
-	microcode = image_file("fw", "a660_sqe.fw", &size);
+	if (is_a710) {
+		stream1 = 0;    /* no second command processor (Motorola's adreno-gpulist.h: no ADRENO_LPAC), no stream 1 in its dt */
+	}
+	announce("make the 3D core's memory: its ring, its microcode (fw/a660_sqe.fw; a710: fw/a710_sqe.fw), a page to try writing to");
+	microcode = image_file("fw", is_a710 ? "a710_sqe.fw" : "a660_sqe.fw", &size);
 	if (microcode == NULL || size < 8 || size > 0x40000 ||
 	    !block_new(&core_space, &core_ring, CORE_RING_ADDRESS, CORE_RING_SIZE, PTE_CORE) ||
 	    !block_new(&core_space, &core_sqe, CORE_SQE_ADDRESS, (uint32_t)size - 4, PTE_CORE | PTE_READ_ONLY) ||
@@ -4038,9 +4041,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 17) {
-		printf("adreno: a710: steps past 17 do not know this chip yet: stopping at 17\n");
-		last_step = 17;
+	if (is_a710 && last_step > 18) {
+		printf("adreno: a710: steps past 18 do not know this chip yet: stopping at 18\n");
+		last_step = 18;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
