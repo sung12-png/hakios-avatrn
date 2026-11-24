@@ -105,9 +105,10 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 11 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
+ * 1 to 16 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
- * its memory behind the SMMU, 14 loads its firmware, 15 starts it); everything after still has the SC7280's
+ * its memory behind the SMMU, 14 loads its firmware, 15 starts it,
+ * 16 starts its message queues); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -2196,16 +2197,16 @@ step_gmu_queues(void)
 		return false;
 	}
 	announce("enable the GPU's part of the always-on sequencer (pdc, 0xb294500 and 0xb294520: a part of the SoC not "
-	    "touched before)");
+	    "touched before; a710: 0xb274500, 0xb274520)");
 	get(&pdc, "gpu_enable", PDC_GPU_ENABLE);
 	get(&pdc, "gpu_seq_start_addr", PDC_GPU_SEQ_START_ADDR);
 	put(&pdc, "gpu_seq_start_addr", PDC_GPU_SEQ_START_ADDR, 0);
 	put(&pdc, "gpu_enable", PDC_GPU_ENABLE, 0x80000001);
 	get(&pdc, "gpu_enable", PDC_GPU_ENABLE);
 
-	announce("give the GMU's RPMh channel its sleep and wake program (rscc, 0x3de0000), unless it has it");
+	announce("give the GMU's RPMh channel its sleep and wake program (rscc, 0x3de0000; a710: 0x3d50000), unless it has it");
 	if (get(&rscc, "seq_mem_0_drv0", RSCC_SEQ_MEM_0_DRV0) == program[0] &&
-	    get(&rscc, "hidden_tcs_cmd2_data", RSCC_HIDDEN_TCS_CMD0_DATA + 4 * 4) == 0x80000021) {
+	    get(&rscc, "hidden_tcs_cmd2_data", RSCC_HIDDEN_TCS_CMD0_DATA + 4 * 4) == (is_a710 ? 0x80000000 : 0x80000021)) {
 		goto programmed;
 	}
 	put(&rscc, "rsc_status0_drv0", RSCC_RSC_STATUS0_DRV0, 1u << 24);
@@ -2214,7 +2215,8 @@ step_gmu_queues(void)
 	put(&rscc, "hidden_tcs_cmd0_addr", RSCC_HIDDEN_TCS_CMD0_ADDR, 0);
 	put(&rscc, "hidden_tcs_cmd1_data", RSCC_HIDDEN_TCS_CMD0_DATA + 4 * 2, 0);
 	put(&rscc, "hidden_tcs_cmd1_addr", RSCC_HIDDEN_TCS_CMD0_ADDR + 4 * 2, 0);
-	put(&rscc, "hidden_tcs_cmd2_data", RSCC_HIDDEN_TCS_CMD0_DATA + 4 * 4, 0x80000021);    /* a650 and later */
+	put(&rscc, "hidden_tcs_cmd2_data", RSCC_HIDDEN_TCS_CMD0_DATA + 4 * 4,
+	    is_a710 ? 0x80000000 : 0x80000021);              /* gen7: Motorola gen7_load_rsc_ucode; a650 and later */
 	put(&rscc, "hidden_tcs_cmd2_addr", RSCC_HIDDEN_TCS_CMD0_ADDR + 4 * 4, 0);
 	put(&rscc, "override_start_addr", RSCC_OVERRIDE_START_ADDR, 0);
 	put(&rscc, "pdc_seq_start_addr", RSCC_PDC_SEQ_START_ADDR, 0x4520);
@@ -3956,6 +3958,7 @@ hakios_adreno_init(void)
 		/* parrot's GPU clocks are at gcc + 0x81000: map far enough, before anything maps the block */
 		gcc.size = 0xa0000;
 		gpucc.size = 0xa000;
+		pdc.phys = 0x0b270000;          /* dt: qcom,gmu "gmu_pdc" 0xb270000 0x10000 */
 		rscc.phys = 0x03d50000;         /* dt: kgsl reg 0x3d50000 0x10000 (JosephMontfort's garnet port) */
 		rscc.size = 0x10000;
 		smmu.size = 0x40000;            /* dt: kgsl-smmu@3da0000 */
@@ -4017,9 +4020,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 15) {
-		printf("adreno: a710: steps past 15 do not know this chip yet: stopping at 15\n");
-		last_step = 15;
+	if (is_a710 && last_step > 16) {
+		printf("adreno: a710: steps past 16 do not know this chip yet: stopping at 16\n");
+		last_step = 16;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
