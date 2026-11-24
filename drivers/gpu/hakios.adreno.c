@@ -105,7 +105,7 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 6 know it so far (4 switches the CX power domain on, 5 starts its clocks, 6 reads the GMU); everything after still has the SC7280's
+ * 1 to 10 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -952,11 +952,16 @@ measure_clocks(void)
  * What every later step stands on: CX powered, the GMU's clock running by its control register,
  * and the register bus's clock running by measurement (see above).
  */
+static bool a710_ready(void);
+
 static bool
 cx_ready(void)
 {
 	uint32_t gmu_clock, ahb_hz;
 
+	if (is_a710) {
+		return a710_ready();
+	}
 	if (!gpucc_answers()) {
 		return false;
 	}
@@ -1023,6 +1028,7 @@ static bool
 a710_ready(void)
 {
 	uint32_t gmu_cbcr, ahb, gmu_hz, hub_hz;
+	static bool measured;           /* the counter once a run; the switch and the GMU's clock every time */
 
 	if (!gpucc_answers()) {
 		return false;
@@ -1031,6 +1037,9 @@ a710_ready(void)
 	if (!cx_is_on() || (gmu_cbcr & (CBCR_ENABLE | CBCR_OFF)) != CBCR_ENABLE) {
 		printf("adreno: %u: needs CX on and the GMU's clock running (cx_gmu %#x): steps 4 and 5\n", step, gmu_cbcr);
 		return false;
+	}
+	if (measured) {
+		return true;
 	}
 	ahb = measure(at_dbg_sel_ahb);
 	gmu_hz = measure(0x1e);         /* gpu_cc_cx_gmu_clk */
@@ -1041,6 +1050,7 @@ a710_ready(void)
 		printf("adreno: %u: a710: without those clocks a register of the GPU block would not answer: not touching it\n", step);
 		return false;
 	}
+	measured = true;
 	return true;
 }
 
@@ -3919,6 +3929,9 @@ hakios_adreno_init(void)
 		/* parrot's GPU clocks are at gcc + 0x81000: map far enough, before anything maps the block */
 		gcc.size = 0xa0000;
 		gpucc.size = 0xa000;
+		rscc.phys = 0x03d50000;         /* dt: kgsl reg 0x3d50000 0x10000 (JosephMontfort's garnet port) */
+		rscc.size = 0x10000;
+		smmu.size = 0x40000;            /* dt: kgsl-smmu@3da0000 */
 		at_gcc_gpu_cfg_ahb = PARROT_GCC_GPU_CFG_AHB_CBCR;
 		at_cx_gdscr = 0x9108;           /* dt: gdsc@3d99108 */
 		at_cx_hw_ctrl = 0x953c;
@@ -3977,9 +3990,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 6) {
-		printf("adreno: a710: steps past 6 do not know this chip yet: stopping at 6\n");
-		last_step = 6;
+	if (is_a710 && last_step > 10) {
+		printf("adreno: a710: steps past 10 do not know this chip yet: stopping at 10\n");
+		last_step = 10;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
