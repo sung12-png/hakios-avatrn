@@ -105,11 +105,11 @@
 
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
- * 1 to 19 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
+ * 1 to 20 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
  * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
  * its memory behind the SMMU, 14 loads its firmware, 15 starts it,
  * 16 starts its message queues, 17 has the 3D core powered, 18 gives the 3D core memory and microcode,
- * 19 loads the zap shader); everything after still has the SC7280's
+ * 19 loads the zap shader, 20 starts the 3D core's command processor); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -2675,6 +2675,14 @@ static struct gpu_space second_space = {
 #define SECOND_MATCH            2
 static bool second_space_is_on, second_stream_is_on;
 static struct gpu_block core_ring, core_sqe, core_scratch, core_target;
+/*
+ * a710: one zeroed page. Its start is the "power-up register list" the command processor is given
+ * with "initialize" (Motorola gen7_patch_pwrup_reglist: a lock and list lengths -- all zero here,
+ * no registers listed); from 0x800 it writes how far it has read the ring.
+ */
+static struct gpu_block core_pwrup;
+#define CORE_PWRUP_ADDRESS      0x01300000u
+#define CP_THREAD_CONTROL       0x17
 static bool core_space_is_on, core_runs, zap_is_loaded;
 #define RING_WORDS              (CORE_RING_SIZE / 4)
 static uint32_t ring_at;                /* where the next word goes: the ring goes round */
@@ -2776,6 +2784,9 @@ step_core_space(void)
 	    !block_new(&core_space, &core_ring, CORE_RING_ADDRESS, CORE_RING_SIZE, PTE_CORE) ||
 	    !block_new(&core_space, &core_sqe, CORE_SQE_ADDRESS, (uint32_t)size - 4, PTE_CORE | PTE_READ_ONLY) ||
 	    !block_new(&core_space, &core_scratch, CORE_SCRATCH_ADDRESS, 4096, PTE_CORE)) {
+		return false;
+	}
+	if (is_a710 && !block_new(&core_space, &core_pwrup, CORE_PWRUP_ADDRESS, 4096, PTE_CORE)) {
 		return false;
 	}
 	memcpy((void *)core_sqe.memory, microcode + 4, size - 4);       /* the file's first word is not microcode */
@@ -2911,6 +2922,42 @@ step_zap_load(void)
 
 /* ---- step 20: the 3D core's registers, its command processor started, its first command ------------------- */
 
+/*
+ * The Adreno 710 (gen7_3_0) before its command processor is started: Motorola's gen7_start() with
+ * adreno-gpulist.h's values for this GPU (highest bank bit 15, 32-byte accesses). Left out, as the
+ * SC7280 steps leave out their like: clock gating, register protection, performance counting.
+ */
+static void
+a710_core_registers(void)
+{
+	put(&gbif, "halt", GBIF_HALT, 0);
+	put(&gpu, "rbbm_gbif_halt", RBBM_GBIF_HALT, 0);
+	for (unsigned i = 0; i < 4; i++) {
+		put(&gbif, "qsb_side", 4 * 0x03 + 4 * i, 0x00071620);
+	}
+	put(&gpu, "rbbm_gbif_client_qos_cntl", RBBM_GBIF_CLIENT_QOS_CNTL, 3);
+	put(&gpu, "uche_gbif_gx_config", GPU_WORD(0x0e3a), 0x010240e0);
+	put(&gpu, "rbbm_perfctr_gpu_busy_masked", RBBM_PERFCTR_GPU_BUSY_MASKED, 0xffffffff);
+	put64(&gpu, "uche_trap_base", UCHE_TRAP_BASE, 0x0001fffffffff000ull);
+	put64(&gpu, "uche_write_thru_base", UCHE_WRITE_THRU_BASE, 0x0001fffffffff000ull);
+	put(&gpu, "uche_cache_ways", UCHE_CACHE_WAYS, 0x00800000);
+	put(&gpu, "uche_cmdq_config", GPU_WORD(0x0e3c), 0x0006690e);
+	put(&gpu, "cp_ahb_cntl", CP_AHB_CNTL, 1);
+	put(&gpu, "rbbm_perfctr_cntl", RBBM_PERFCTR_CNTL, 1);
+	put(&gpu, "rb_nc_mode_cntl", GPU_WORD(0x8e08), 1u << 11 | 1u << 4 | 2u << 1);
+	put(&gpu, "tpl1_nc_mode_cntl", GPU_WORD(0xb604), 2u << 1);
+	put(&gpu, "sp_nc_mode_cntl", GPU_WORD(0xae02), 2u << 4 | 2u << 1);
+	put(&gpu, "gras_nc_mode_cntl", GPU_WORD(0x8602), 2u << 5);
+	put(&gpu, "uche_mode_cntl", GPU_WORD(0x0e01), 2u << 21);
+	put(&gpu, "rbbm_interface_hang_int_cntl", RBBM_INTERFACE_HANG_INT_CNTL, 1u << 30 | 0xcfffff);
+	put(&gpu, "uche_client_pf", UCHE_CLIENT_PF, 1u << 7 | 1);
+	set(&gpu, "rb_cmp_dbg_eco_cntl", GPU_WORD(0x8e28), 1u << 11);
+	put(&gpu, "cp_apriv_cntl", CP_APRIV_CNTL, 0x6f);
+	put(&gpu, "rbbm_secvid_tsb_cntl", RBBM_SECVID_TSB_CNTL, 0);
+	put64(&gpu, "rbbm_secvid_tsb_trusted_base", RBBM_SECVID_TSB_TRUSTED_BASE, 0);
+	put(&gpu, "rbbm_secvid_tsb_trusted_size", RBBM_SECVID_TSB_TRUSTED_SIZE, 0);
+}
+
 static bool
 step_core_start(void)
 {
@@ -2923,47 +2970,51 @@ step_core_start(void)
 	}
 	announce("write the 3D core's registers as Linux does before it starts the command processor: the first writes "
 	    "to the core itself");
-	put(&gbif, "halt", GBIF_HALT, 0);
-	put(&gpu, "rbbm_gbif_halt", RBBM_GBIF_HALT, 0);
-	put(&gpu, "rbbm_secvid_tsb_cntl", RBBM_SECVID_TSB_CNTL, 0);
-	put64(&gpu, "rbbm_secvid_tsb_trusted_base", RBBM_SECVID_TSB_TRUSTED_BASE, 0);
-	put(&gpu, "rbbm_secvid_tsb_trusted_size", RBBM_SECVID_TSB_TRUSTED_SIZE, 0);
-	for (unsigned i = 0; i < sizeof(address_modes) / sizeof(address_modes[0]); i++) {
-		put(&gpu, "address mode: 64 bits", GPU_WORD(address_modes[i]), 1);
+	if (is_a710) {
+		a710_core_registers();
+	} else {
+		put(&gbif, "halt", GBIF_HALT, 0);
+		put(&gpu, "rbbm_gbif_halt", RBBM_GBIF_HALT, 0);
+		put(&gpu, "rbbm_secvid_tsb_cntl", RBBM_SECVID_TSB_CNTL, 0);
+		put64(&gpu, "rbbm_secvid_tsb_trusted_base", RBBM_SECVID_TSB_TRUSTED_BASE, 0);
+		put(&gpu, "rbbm_secvid_tsb_trusted_size", RBBM_SECVID_TSB_TRUSTED_SIZE, 0);
+		for (unsigned i = 0; i < sizeof(address_modes) / sizeof(address_modes[0]); i++) {
+			put(&gpu, "address mode: 64 bits", GPU_WORD(address_modes[i]), 1);
+		}
+		for (unsigned i = 0; i < 4; i++) {
+			put(&gbif, "qsb_side", GBIF_QSB_SIDE0 + 4 * i, 0x00071620);
+		}
+		put(&gpu, "rbbm_gbif_client_qos_cntl", RBBM_GBIF_CLIENT_QOS_CNTL, 3);
+		put(&gpu, "rbbm_perfctr_gpu_busy_masked", RBBM_PERFCTR_GPU_BUSY_MASKED, 0xffffffff);
+		put64(&gpu, "uche_write_range_max", UCHE_WRITE_RANGE_MAX, 0x0001ffffffffffc0ull);
+		put64(&gpu, "uche_trap_base", UCHE_TRAP_BASE, 0x0001fffffffff000ull);
+		put64(&gpu, "uche_write_thru_base", UCHE_WRITE_THRU_BASE, 0x0001fffffffff000ull);
+		put(&gpu, "uche_filter_cntl", UCHE_FILTER_CNTL, 0x804);
+		put(&gpu, "uche_cache_ways", UCHE_CACHE_WAYS, 0x4);
+		put(&gpu, "cp_roq_thresholds_2", CP_ROQ_THRESHOLDS_2, 0x02000140);
+		put(&gpu, "cp_roq_thresholds_1", CP_ROQ_THRESHOLDS_1, 0x8040362c);
+		put(&gpu, "cp_lpac_prog_fifo_size", CP_LPAC_PROG_FIFO_SIZE, 0x20);
+		put(&gpu, "cp_mem_pool_size", CP_MEM_POOL_SIZE, 128);
+		put(&gpu, "pc_dbg_eco_cntl", PC_DBG_ECO_CNTL, 0x00200200);
+		put(&gpu, "cp_ahb_cntl", CP_AHB_CNTL, 1);
+		/*
+		 * How textures in the GPU's own tiled and compressed layouts are laid out in memory (Linux's
+		 * a6xx_calc_ubwc_config, a6xx_set_ubwc_config for this GPU: highest bank bit 14, and the
+		 * rest as below); Mesa is told the same (hakios_gpu_parameter()).
+		 */
+		put(&gpu, "rb_nc_mode_cntl", GPU_WORD(0x8e08), 1u << 11 | 1u << 4 | 1u << 1);
+		put(&gpu, "tpl1_nc_mode_cntl", GPU_WORD(0xb604), 1u << 1);
+		put(&gpu, "sp_nc_mode_cntl", GPU_WORD(0xae02), 2u << 4 | 1u << 1);
+		put(&gpu, "uche_mode_cntl", GPU_WORD(0x0e01), 1u << 21);
+		put(&gpu, "rbbm_nc_mode_cntl", GPU_WORD(0x0534), 1);
+		put(&gpu, "rbbm_perfctr_cntl", RBBM_PERFCTR_CNTL, 1);
+		put(&gpu, "rbbm_interface_hang_int_cntl", RBBM_INTERFACE_HANG_INT_CNTL, 1u << 30 | 0x1fffff);
+		put(&gpu, "uche_client_pf", UCHE_CLIENT_PF, 1u << 7 | 1);
+		put(&gpu, "cp_chicken_dbg", CP_CHICKEN_DBG, 1);
+		put(&gpu, "rbbm_gbif_client_qos_cntl", RBBM_GBIF_CLIENT_QOS_CNTL, 0);
+		put(&gpu, "cp_apriv_cntl", CP_APRIV_CNTL, 1u << 6 | 1u << 5 | 1u << 3 | 1u << 2 | 1u << 1);
+		put(&gpu, "rb_dbg_eco_cntl", RB_DBG_ECO_CNTL, 0x04100000);     /* Mesa's value for this GPU */
 	}
-	for (unsigned i = 0; i < 4; i++) {
-		put(&gbif, "qsb_side", GBIF_QSB_SIDE0 + 4 * i, 0x00071620);
-	}
-	put(&gpu, "rbbm_gbif_client_qos_cntl", RBBM_GBIF_CLIENT_QOS_CNTL, 3);
-	put(&gpu, "rbbm_perfctr_gpu_busy_masked", RBBM_PERFCTR_GPU_BUSY_MASKED, 0xffffffff);
-	put64(&gpu, "uche_write_range_max", UCHE_WRITE_RANGE_MAX, 0x0001ffffffffffc0ull);
-	put64(&gpu, "uche_trap_base", UCHE_TRAP_BASE, 0x0001fffffffff000ull);
-	put64(&gpu, "uche_write_thru_base", UCHE_WRITE_THRU_BASE, 0x0001fffffffff000ull);
-	put(&gpu, "uche_filter_cntl", UCHE_FILTER_CNTL, 0x804);
-	put(&gpu, "uche_cache_ways", UCHE_CACHE_WAYS, 0x4);
-	put(&gpu, "cp_roq_thresholds_2", CP_ROQ_THRESHOLDS_2, 0x02000140);
-	put(&gpu, "cp_roq_thresholds_1", CP_ROQ_THRESHOLDS_1, 0x8040362c);
-	put(&gpu, "cp_lpac_prog_fifo_size", CP_LPAC_PROG_FIFO_SIZE, 0x20);
-	put(&gpu, "cp_mem_pool_size", CP_MEM_POOL_SIZE, 128);
-	put(&gpu, "pc_dbg_eco_cntl", PC_DBG_ECO_CNTL, 0x00200200);
-	put(&gpu, "cp_ahb_cntl", CP_AHB_CNTL, 1);
-	/*
-	 * How textures in the GPU's own tiled and compressed layouts are laid out in memory (Linux's
-	 * a6xx_calc_ubwc_config, a6xx_set_ubwc_config for this GPU: highest bank bit 14, and the
-	 * rest as below); Mesa is told the same (hakios_gpu_parameter()).
-	 */
-	put(&gpu, "rb_nc_mode_cntl", GPU_WORD(0x8e08), 1u << 11 | 1u << 4 | 1u << 1);
-	put(&gpu, "tpl1_nc_mode_cntl", GPU_WORD(0xb604), 1u << 1);
-	put(&gpu, "sp_nc_mode_cntl", GPU_WORD(0xae02), 2u << 4 | 1u << 1);
-	put(&gpu, "uche_mode_cntl", GPU_WORD(0x0e01), 1u << 21);
-	put(&gpu, "rbbm_nc_mode_cntl", GPU_WORD(0x0534), 1);
-	put(&gpu, "rbbm_perfctr_cntl", RBBM_PERFCTR_CNTL, 1);
-	put(&gpu, "rbbm_interface_hang_int_cntl", RBBM_INTERFACE_HANG_INT_CNTL, 1u << 30 | 0x1fffff);
-	put(&gpu, "uche_client_pf", UCHE_CLIENT_PF, 1u << 7 | 1);
-	put(&gpu, "cp_chicken_dbg", CP_CHICKEN_DBG, 1);
-	put(&gpu, "rbbm_gbif_client_qos_cntl", RBBM_GBIF_CLIENT_QOS_CNTL, 0);
-	put(&gpu, "cp_apriv_cntl", CP_APRIV_CNTL, 1u << 6 | 1u << 5 | 1u << 3 | 1u << 2 | 1u << 1);
-	put(&gpu, "rb_dbg_eco_cntl", RB_DBG_ECO_CNTL, 0x04100000);     /* Mesa's value for this GPU */
 	/*
 	 * adreno_blind=1: the command processor is started with its microcode at an address where
 	 * nothing is. All it can do then is ask the SMMU for it, and the SMMU's record of the refusal
@@ -2972,7 +3023,12 @@ step_core_start(void)
 	PE_parse_boot_argn("adreno_blind", &blind, sizeof(blind));
 	put64(&gpu, "cp_sqe_instr_base", CP_SQE_INSTR_BASE, blind ? CORE_NOWHERE : CORE_SQE_ADDRESS);
 	put64(&gpu, "cp_rb_base", CP_RB_BASE, CORE_RING_ADDRESS);
-	put(&gpu, "cp_rb_cntl", CP_RB_CNTL, CP_RB_CNTL_VALUE);
+	if (is_a710) {
+		put64(&gpu, "cp_rb_rptr_addr", GPU_WORD(0x0804), CORE_PWRUP_ADDRESS + 0x800);
+		put(&gpu, "cp_rb_cntl", CP_RB_CNTL, 12u | 2u << 8);     /* Motorola's GEN7_CP_RB_CNTL_DEFAULT */
+	} else {
+		put(&gpu, "cp_rb_cntl", CP_RB_CNTL, CP_RB_CNTL_VALUE);
+	}
 	get(&gpu, "cp_sqe_instr_base", CP_SQE_INSTR_BASE);
 	get(&gpu, "cp_rb_base", CP_RB_BASE);
 	get(&gpu, "cp_rb_cntl", CP_RB_CNTL);
@@ -3003,15 +3059,29 @@ step_core_start(void)
 	}
 
 	announce("give the 3D core its first command, \"initialize\"");
-	ring_command(CP_ME_INIT, 8);            /* a6xx_cp_init */
-	ring(0x0000002f);
-	ring(0x00000003);                       /* several hardware contexts */
-	ring(0x20000000);                       /* error detection */
-	ring(0);
-	ring(0);
-	ring(0);
-	ring(0);
-	ring(0);
+	if (is_a710) {
+		/* Motorola's gen7_cp_init_cmds() */
+		ring_command(CP_THREAD_CONTROL, 1);
+		ring(1u << 27);
+		ring_command(CP_ME_INIT, 7);
+		ring(0x0000094b);                       /* which of the following are given */
+		ring(0x00000003);                       /* several hardware contexts */
+		ring(0x20000000);                       /* error detection */
+		ring(0x00000002);                       /* operation mode */
+		ring(CORE_PWRUP_ADDRESS);               /* the power-up register list, low and high */
+		ring(0);
+		ring(1u << 31);
+	} else {
+		ring_command(CP_ME_INIT, 8);            /* a6xx_cp_init */
+		ring(0x0000002f);
+		ring(0x00000003);                       /* several hardware contexts */
+		ring(0x20000000);                       /* error detection */
+		ring(0);
+		ring(0);
+		ring(0);
+		ring(0);
+		ring(0);
+	}
 	if (!ring_run("initialize its command processor")) {
 		return false;
 	}
@@ -4053,9 +4123,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 19) {
-		printf("adreno: a710: steps past 19 do not know this chip yet: stopping at 19\n");
-		last_step = 19;
+	if (is_a710 && last_step > 20) {
+		printf("adreno: a710: steps past 20 do not know this chip yet: stopping at 20\n");
+		last_step = 20;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
