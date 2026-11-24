@@ -14,6 +14,17 @@ driver GOODIX
 	help    the touch screen: a Goodix GT9916 ("Berlin-D") or a FocalTech FT3680 on SPI (touchscreen=1). The bus,
 	help    pins and supplies are the POCO X5 Pro's; another phone with one of these controllers changes those
 
+driver AVATRN_GOODIX
+	file    bsd/dev/hakios.avatrn_goodix.c
+	default n
+	help    the Motorola Edge 2024's Goodix GT9916S on qupv3_se9 SPI (touchscreen=1); avatrn's bus, pins and rails
+
 driver BUTTONS
 	file    bsd/dev/hakios.buttons.c
 	help    the power and volume keys, read from the PMIC through the SPMI arbiter (buttons=1)
+
+driver AVATRN_BUTTONS
+	file    bsd/dev/hakios.avatrn_buttons.c
+	default n
+	help    the Motorola Edge 2024's power and volume keys: the PMK8350's PON and the PM6450's GPIO1,
+	help    read through avatrn's SPMI arbiter at 0xc42d000 (buttons=1)

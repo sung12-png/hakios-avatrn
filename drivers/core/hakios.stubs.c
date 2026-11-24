@@ -45,6 +45,14 @@ void hakios_goodix_init(void) {}
 void hakios_buttons_init(void) {}
 #endif
 
+#ifndef HAKIOS_AVATRN_GOODIX
+void avatrn_goodix_init(void) {}
+#endif
+
+#ifndef HAKIOS_AVATRN_BUTTONS
+void avatrn_buttons_init(void) {}
+#endif
+
 #ifndef HAKIOS_UFS
 void hakios_ufs_init(void) {}
 void hakios_ufs_report(__unused const char *when) {}

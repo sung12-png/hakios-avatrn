@@ -55,8 +55,8 @@ BATTERY	arg	battery	Audio and battery	kl	hakios.adsp.c,hakios.battery.c,loader.c
 BATTMGR	arg	battmgr	Audio and battery	k	hakios.adsp.c	every property once, for the log (which number is which on this phone's firmware)
 BT	arg	bt	User space	k	hakios.bt.c	
 BT_AGAIN	arg	bt_again	User space	k	hakios.bt.c	the second look this many seconds later (0: no second look; 30)
-BUTTONS	arg	buttons	Touch and buttons	k	hakios.buttons.c	
-BUTTONS_STEPS	arg	buttons_steps	Touch and buttons	k	hakios.buttons.c	
+BUTTONS	arg	buttons	Touch and buttons	k	hakios.avatrn_buttons.c,hakios.buttons.c	
+BUTTONS_STEPS	arg	buttons_steps	Touch and buttons	k	hakios.avatrn_buttons.c,hakios.buttons.c	
 CA_VBL	arg	ca_vbl	User space	u	inject.c	CoreAnimation's frame clock from the display driver's refresh notifications
 CAENV	arg	caenv	User space	u	inject.c	
 CAM_AFTER	arg	cam_after	Cameras	k	hakios.camera.c	
@@ -78,10 +78,12 @@ DDR	arg	ddr	CPU, memory and boot	k	hakios.cpufreq.c	the memory's bus clock manag
 DDR_REST	arg	ddr_rest	CPU, memory and boot	k	hakios.cpufreq.c	
 DDR_VOTE	arg	ddr_vote	CPU, memory and boot	k	hakios.cpufreq.c	
 DISPLAY_PROBE	arg	display_probe	GPU and display	k	hakios.adreno.c	before any step: read what the firmware left the display controller doing (display_probe() below; two clocks are turned on, nothing else written)
+EPSS_CORES	arg	epss_cores	CPU, memory and boot	k	hakios.cpufreq.c	
 FB_BEAT	arg	fb_beat	GPU and display	k	MiniIOMobileFramebuffer.cpp	
 FB_DIFF	arg	fb_diff	GPU and display	k	MiniIOMobileFramebuffer.cpp	which pixels of the panel each frame changed (it costs: the panel's memory is slow to read)
 FB_FILTER	arg	fb_filter	GPU and display	k	MiniIOMobileFramebuffer.cpp	the picture is scaled to the panel nearest neighbour, as it once was
 FB_HZ	arg	fb_hz	GPU and display	k	MiniIOMobileFramebuffer.cpp	
+FB_MEASURE	arg	fb_measure	GPU and display	k	MiniIOMobileFramebuffer.cpp	how often the panel is really refreshed
 FB_QUEUE	arg	fb_queue	GPU and display	k	MiniIOMobileFramebuffer.cpp	
 FB_THREADS	arg	fb_threads	GPU and display	k	MiniIOMobileFramebuffer.cpp	
 FBHEIGHT	arg	fbheight	GPU and display	k	MiniIOMobileFramebuffer.cpp	
@@ -195,6 +197,7 @@ SERIAL	arg	serial	Loader	l	loader.c
 SMALL_CORES	arg	small_cores	CPU, memory and boot	k	(patch)	
 SMALL_CORES_AFTER	arg	small_cores_after	CPU, memory and boot	k	GenericARMPE.cpp	
 SOC_CMD_DB	hex	soc_cmd_db	Cellular	k	hakios.mpss.c	
+SOC_EPSS	hex	soc_epss	CPU, memory and boot	k	hakios.cpufreq.c	
 SOC_GSI_BASE	hex	soc_gsi_base	Cellular	k	hakios.ipa.c	
 SOC_IMEM	hex	soc_imem	Cellular	k	hakios.mpss.c	
 SOC_IPA_BASE	hex	soc_ipa_base	Cellular	k	hakios.ipa.c	
@@ -204,6 +207,7 @@ SOC_IPA_STREAM_UC	arg	soc_ipa_stream_uc	Cellular	k	hakios.mpss.c
 SOC_MPSS_MEM	hex	soc_mpss_mem	Cellular	k	hakios.mpss.c	
 SOC_PAS_IPA	arg	soc_pas_ipa	Cellular	k	hakios.mpss.c	
 SOC_PAS_MPSS	arg	soc_pas_mpss	Cellular	k	hakios.mpss.c	
+SOC_RSC	hex	soc_rsc	CPU, memory and boot	k	hakios.cpufreq.c	
 SOC_SMEM	hex	soc_smem	Cellular	k	hakios.mpss.c,hakios.socinfo.c	where SMEM is (also the modem driver's argument; 0x80900000 on the reference phone)
 SOC_SMEM_SIZE	hex	soc_smem_size	Chip, thermal and PMIC	k	hakios.socinfo.c	
 SOUND_BELOW	arg	sound_below	Audio and battery	k	hakios.sound.c	
@@ -225,11 +229,15 @@ THERMAL_TM1	arg	thermal_tm1	Chip, thermal and PMIC	k	hakios.thermal.c
 TORCH	arg	torch	Haptics and torch	kl	hakios.torch.c,loader.c	a look, reading only: the arbiter's channel for the module and who may write through it, the module's type, its registers, the PMIC's temperature
 TORCH_MAX_S	arg	torch_max_s	Haptics and torch	k	hakios.torch.c	
 TORCH_SECS	arg	torch_secs	Haptics and torch	k	hakios.torch.c	
-TOUCH_FLIP	arg	touch_flip	Touch and buttons	k	hakios.goodix.c	
-TOUCH_LAT	arg	touch_lat	GPU and display	ku	MiniIOMobileFramebuffer.cpp,eagl.c,hakios.goodix.c,hakios.gpu.cpp,hakios.input.c,inject.c,inject_sb.c	a line for every wait of a program's for the GPU that took a millisecond or more ("tl: f KIND US at US"), for telling apart what holds a frame up
-TOUCH_POLL_US	arg	touch_poll_us	Touch and buttons	k	hakios.goodix.c	
-TOUCH_RATE	arg	touch_rate	Touch and buttons	k	hakios.goodix.c	the chip reports twice as often (Xiaomi's game mode; 240 otherwise)
-TOUCH_SPI_HZ	arg	touch_spi_hz	Touch and buttons	k	hakios.goodix.c	the bus at N Hz (Android's device tree gives the chip 5 MHz)
+TOUCH_AVDD	arg	touch_avdd	User space	k	hakios.avatrn_goodix.c	
+TOUCH_BITBANG	arg	touch_bitbang	User space	k	hakios.avatrn_goodix.c	leave the serial engine (GENI) alone and drive the four pins by hand
+TOUCH_FLIP	arg	touch_flip	Touch and buttons	k	hakios.avatrn_goodix.c,hakios.goodix.c	
+TOUCH_LAT	arg	touch_lat	GPU and display	ku	MiniIOMobileFramebuffer.cpp,eagl.c,hakios.avatrn_goodix.c,hakios.goodix.c,hakios.gpu.cpp,hakios.input.c,inject.c,inject_sb.c	a line for every wait of a program's for the GPU that took a millisecond or more ("tl: f KIND US at US"), for telling apart what holds a frame up
+TOUCH_POLL_US	arg	touch_poll_us	Touch and buttons	k	hakios.avatrn_goodix.c,hakios.goodix.c	
+TOUCH_RATE	arg	touch_rate	Touch and buttons	k	hakios.avatrn_goodix.c,hakios.goodix.c	the chip reports twice as often (Xiaomi's game mode; 240 otherwise)
+TOUCH_SPI_HZ	arg	touch_spi_hz	Touch and buttons	k	hakios.avatrn_goodix.c,hakios.goodix.c	the bus at N Hz (Android's device tree gives the chip 5 MHz)
+TOUCH_STEP	arg	touch_step	User space	k	hakios.avatrn_goodix.c	stop after step N and give the phone back to the loader, so that a step the phone does not come back from is named instead of guessed at
+TOUCH_TRACE	arg	touch_trace	User space	k	hakios.avatrn_goodix.c	the line every 2 seconds instead of every minute, for a short run
 UFS_BENCH	arg	ufs_bench	Storage and APFS	k	hakios.ufs.c	what one request through the loader costs, by size
 UFS_CHECK	arg	ufs_check	Storage and APFS	k	hakios.ufs.c	
 UFS_NATIVE	arg	ufs_native	Storage and APFS	kl	hakios.ufs.c,loader.c	through this kernel's own driver instead, its own transfer list in the controller for the run, if all is as expected; 2: only look; 3: a dry run --
@@ -247,6 +255,7 @@ USTACKS_COUNT	arg	ustacks_count	Debugging	k	user_exception_trace.c
 USTACKS_MS	arg	ustacks_ms	Debugging	k	user_exception_trace.c	
 USTACKS_THREADS	arg	ustacks_threads	Debugging	k	user_exception_trace.c	
 USTACKS_TNAME	arg	ustacks_tname	Debugging	k	user_exception_trace.c	
+VAR_HFS	arg	var_hfs	User space	u	init.c	
 VAR_SAVE_MS	arg	var_save_ms	Storage and APFS	k	hakios.ufs.c	
 VBLUR	arg	vblur	GPU and display	u	eagl.c	
 VIRTIO_BLK	arg	virtio_blk	Storage and APFS	k	hakios.virtio_blk.c	

@@ -87,10 +87,12 @@ ddr_rest	k
 ddr_vote	k
 display_probe	k
 epoch	k
+epss_cores	k
 fb_beat	k
 fb_diff	k
 fb_filter	k
 fb_hz	k
+fb_measure	k
 fb_queue	k
 fb_threads	k
 fbheight	k
@@ -217,6 +219,7 @@ serial	l
 small_cores	k
 small_cores_after	k
 soc_cmd_db	k
+soc_epss	k
 soc_gsi_base	k
 soc_imem	k
 soc_ipa_base	k
@@ -226,6 +229,7 @@ soc_ipa_stream_uc	k
 soc_mpss_mem	k
 soc_pas_ipa	k
 soc_pas_mpss	k
+soc_rsc	k
 soc_smem	k
 soc_smem_size	k
 socinfo	k
@@ -252,11 +256,15 @@ thermal_tm1	k
 torch	kl
 torch_max_s	k
 torch_secs	k
+touch_avdd	k
+touch_bitbang	k
 touch_flip	k
 touch_lat	ku
 touch_poll_us	k
 touch_rate	k
 touch_spi_hz	k
+touch_step	k
+touch_trace	k
 touchscreen	k
 ufs	l
 ufs_bench	k
@@ -278,6 +286,7 @@ ustacks_count	k
 ustacks_ms	k
 ustacks_threads	k
 ustacks_tname	k
+var_hfs	u
 var_save_ms	k
 var_store	u
 vblur	u

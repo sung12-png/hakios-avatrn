@@ -1,6 +1,5 @@
 /*
- * The clock speed of the processor cores the kernel runs on, on the POCO X5 Pro (redwood).
- * Only with boot-arg cpufreq=1: the addresses are this phone's.
+ * The clock speed of the processor cores the kernel runs on. Only with boot-arg cpufreq=1.
  *
  * The boot loader leaves each group of cores at a modest frequency and expects the operating
  * system to ask for more. On this SoC that is one register write: the hardware ("EPSS") has
@@ -8,6 +7,12 @@
  * itself when told which row is wanted. There is no reason for us ever to want less than the
  * top row, for every group that has a core of ours in it (one core, unless boot-arg cpus=N
  * says more).
+ *
+ * Where the groups are is the SoC's, not this file's: soc_epss=<pa> is the first group's block
+ * (0x18591000 on the POCO X5 Pro's SC7280, 0x17d91000 on the Motorola Edge 2024's SM7435,
+ * "parrot"), and epss_cores=<n>,<n>,... the first core of each group after the first (4,7,8 on
+ * the SC7280: cores 0-3, 4-6, 7; 4 on the SM7435: cores 0-3 and 4-7). The memory bus vote
+ * below writes RPMh at soc_rsc=<pa>, the application processors' command slots.
  *
  * Register layout: Linux drivers/cpufreq/qcom-cpufreq-hw.c ("epss" variant).
  */
@@ -54,14 +59,19 @@ tell(const char *format, ...)
 	}
 }
 
-#define EPSS_PHYS               0x18591000UL    /* three groups ("domains") of 0x1000: small cores, big, biggest */
+#define EPSS_PHYS               0x18591000UL    /* the POCO X5 Pro's (SC7280): three groups of 0x1000: small cores, big, biggest */
 #define EPSS_DOMAIN_SIZE        0x1000UL
-#define EPSS_DOMAINS            3
+#define EPSS_MAX_DOMAINS        4
+#define EPSS_CORES              "4,7,8"         /* ... and the first core of each group after the first, that phone's */
 #define EPSS_FREQ_TABLE         0x100           /* a word per row: [31:30] clock source, [7:0] multiple of 19.2 MHz */
 #define EPSS_TABLE_ROWS         40
 #define EPSS_PERF_STATE         0x320           /* the row that is wanted */
 #define XO_KHZ                  19200
 #define ALTERNATE_KHZ           300000          /* source 0: a fixed 300 MHz */
+
+static vm_offset_t epss;                        /* the groups' registers, the first group's block */
+static uint32_t epss_domains = 1;               /* how many there are, once epss_geometry() has read the arguments */
+static uint32_t epss_first[EPSS_MAX_DOMAINS] = { 0 };    /* the core each group starts at */
 
 /* How fast a simple loop runs, in thousands of iterations per millisecond. */
 static uint32_t
@@ -77,13 +87,59 @@ loop_speed(void)
 	return nanos ? (uint32_t)(2000000ULL * 1000 / nanos) : 0;
 }
 
+/*
+ * The groups: where their registers are, how many there are and which core each starts at, from the SoC's
+ * arguments (soc_epss=, epss_cores=); the values above when they are not given.
+ */
+static bool
+epss_geometry(void)
+{
+	char text[sizeof(EPSS_CORES)] = { 0 };
+	const char *list = EPSS_CORES;
+	uint32_t base = EPSS_PHYS;
+	const char *c;
+
+	PE_parse_boot_argn("soc_epss", &base, sizeof(base));
+	if (PE_parse_boot_arg_str("epss_cores", text, sizeof(text)) && text[0] != 0) {
+		list = text;
+	}
+	epss_domains = 1;                       /* the first group starts at core 0, whoever else is named */
+	epss_first[0] = 0;
+	for (c = list; *c != 0;) {
+		uint32_t core = 0;
+
+		while (*c >= '0' && *c <= '9') {
+			core = core * 10 + (uint32_t)(*c++ - '0');
+		}
+		if (core == 0 || core > 31 || epss_domains >= EPSS_MAX_DOMAINS || (*c != 0 && *c != ',')) {
+			tell("cpufreq: epss_cores=%s: want the first core of each group after the first, comma separated\n", list);
+			return false;
+		}
+		epss_first[epss_domains++] = core;
+		if (*c == ',') {
+			c++;
+		}
+	}
+	epss = ml_io_map(base, EPSS_DOMAIN_SIZE * epss_domains);
+	if (epss == 0) {
+		tell("cpufreq: no registers at %#x\n", base);
+		return false;
+	}
+	return true;
+}
+
 /* The group of the core with that number in its MPIDR (the device tree's "reg": the number is the second field). */
 static uint32_t
 domain_of(uint32_t phys_id)
 {
-	uint32_t core = (phys_id >> 8) & 0xff;
+	uint32_t core = (phys_id >> 8) & 0xff, domain = 0;
 
-	return core < 4 ? 0 : core < 7 ? 1 : 2;
+	for (uint32_t d = 1; d < epss_domains; d++) {
+		if (core >= epss_first[d]) {
+			domain = d;
+		}
+	}
+	return domain;
 }
 
 static void
@@ -92,7 +148,7 @@ raise_domain(uint32_t domain, uint32_t cores)
 	uint32_t top = 0, top_khz = 0, was;
 	vm_offset_t base;
 
-	base = ml_io_map(EPSS_PHYS + domain * EPSS_DOMAIN_SIZE, EPSS_DOMAIN_SIZE);
+	base = epss + domain * EPSS_DOMAIN_SIZE;
 	for (uint32_t row = 0; row < EPSS_TABLE_ROWS; row++) {
 		uint32_t entry = *(volatile uint32_t *)(base + EPSS_FREQ_TABLE + 4 * row);
 		uint32_t khz = (entry >> 30) ? XO_KHZ * (entry & 0xff) : ALTERNATE_KHZ;
@@ -380,16 +436,26 @@ ddr_look(void)
  * each (sc7280's qcom,tcs-config): every command with an address, and which of them go to the BCMs
  * above -- the bandwidth it asked for, and that is in force whenever the processors are awake.
  */
-#define RSC_PHYS                0x18220000UL
+#define RSC_PHYS                0x18220000UL    /* the POCO X5 Pro's (SC7280); soc_rsc=<pa> where it is elsewhere */
 #define RSC_SIZE                0x10000UL
 #define RSC_TCS(n, reg)         (0xd00 + 0x2a0 * (n) + (reg))
 #define RSC_TCS_COUNT           9
 #define RSC_CMDS                16
 
+/* Where the application processors' RPMh command slots are: the SoC's, from soc_rsc= (0x18220000 on the reference phone) */
+static vm_offset_t
+rsc_base(void)
+{
+	uint32_t base = RSC_PHYS;
+
+	PE_parse_boot_argn("soc_rsc", &base, sizeof(base));
+	return ml_io_map(base, RSC_SIZE);
+}
+
 static void
 ddr_slots(void)
 {
-	vm_offset_t rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
+	vm_offset_t rsc = rsc_base();
 
 	for (unsigned t = 0; t < RSC_TCS_COUNT; t++) {
 		uint32_t enabled = *(volatile uint32_t *)(rsc + RSC_TCS(t, 0x1c));
@@ -530,7 +596,7 @@ ddr_raise(void)
 		tell("ddr: no vote (MC0 %#x, SH0 %#x, ACV %#x, vote %u)\n", ddr_mc0, ddr_sh0, ddr_acv, vote);
 		return;
 	}
-	ddr_rsc = ml_io_map(RSC_PHYS, RSC_SIZE);
+	ddr_rsc = rsc_base();
 	ddr_voted = ddr_vote(vote);
 	tell("ddr: memory bandwidth vote %u on MC0 (%#x) and SH0 (%#x)%s\n", vote, ddr_mc0, ddr_sh0, ddr_voted ? "" : ": FAILED");
 }
@@ -560,7 +626,7 @@ void
 hakios_cpufreq_init(void)
 {
 	const ml_topology_info_t *topology = ml_get_topology_info();
-	uint32_t enabled = 0, membench = 0, cores[EPSS_DOMAINS] = { 0 }, before, here;
+	uint32_t enabled = 0, membench = 0, cores[EPSS_MAX_DOMAINS] = { 0 }, before, here;
 
 	load_start();
 	enabled = 2;
@@ -575,13 +641,16 @@ hakios_cpufreq_init(void)
 	if (!PE_parse_boot_argn("cpufreq", &enabled, sizeof(enabled)) || !enabled) {
 		return;
 	}
+	if (!epss_geometry()) {
+		return;
+	}
 	for (unsigned int i = 0; i < topology->num_cpus; i++) {
 		cores[domain_of(topology->cpus[i].phys_id)]++;
 	}
 	/* (whichever core this thread happens to be on, and stays on or not: it only goes to the log) */
 	here = (uint32_t)(__builtin_arm_rsr64("MPIDR_EL1") >> 8) & 0xff;
 	before = loop_speed();
-	for (uint32_t domain = 0; domain < EPSS_DOMAINS; domain++) {
+	for (uint32_t domain = 0; domain < epss_domains; domain++) {
 		if (cores[domain] != 0) {
 			raise_domain(domain, cores[domain]);
 		}

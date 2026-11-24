@@ -229,6 +229,12 @@ hakios_input_init(void)
 	hakios_virtio_input_init();
 	hakios_goodix_init();
 	hakios_buttons_init();
+	/*
+	 * This phone's own controllers, from here and not from a startup call: they touch the RSC's
+	 * command slots and the SPMI arbiter, which are up by now (the redwood drivers start here too).
+	 */
+	avatrn_goodix_init();
+	avatrn_buttons_init();
 	hakios_battery_init();
 	hakios_ufs_init();
 	hakios_net_init();

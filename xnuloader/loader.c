@@ -15,7 +15,9 @@
 /* ------------------------------------------------------------------------ */
 /* Fixed conventions shared with the boot shim, the packer and the kernel   */
 
+#ifndef PAYLOAD_BASE
 #define PAYLOAD_BASE        0xF0000000ULL
+#endif
 #define PAYLOAD_MAGIC       0x50554E58u /* "XNUP" */
 
 struct payload_header { uint32_t magic; uint32_t size; };
@@ -31,7 +33,7 @@ struct payload_entry { char name[16]; uint32_t size; uint32_t reserved; };
  * number of kernel runs (nothing writes to it: the root is read-only).
  */
 #define RESIDENT_RD_OFFSET  0x08000000ULL
-#define RESIDENT_RD_RESERVE 0x30000000ULL         /* RAM that must remain for the kernel itself */
+#define RESIDENT_RD_RESERVE 0x10000000ULL         /* RAM that must remain for the kernel itself */
 #define PAGE_SIZE_MAX       0x4000ULL
 
 #define LOG_PARTITION       u"logdump"
@@ -351,13 +353,67 @@ write_logs(const char *klog, uint64_t klog_len)
 
 	compose_logs(klog, klog_len);
 	if (bio == NULL) {
-		/* No log partition (QEMU): echo the returned kernel log on the console instead. */
+		/* AVATRN diag: search for the panic buffer marker and print 2 KB AFTER it
+		 * (= panic text, which comes before the stackshot binary). */
 		if (klog != NULL) {
-			print("\n== KERNEL LOG ==\n");
-			for (uint64_t i = 0; i < klog_len; i++) {
-				put_char(klog[i]);
+			static const char marker[] = "--- panic buffer ---";
+			uint64_t hit = 0;
+			for (uint64_t i = 0; i + sizeof(marker) - 1 < klog_len; i++) {
+				unsigned k = 0;
+				while (k < sizeof(marker) - 1 && klog[i + k] == marker[k]) k++;
+				if (k == sizeof(marker) - 1) { hit = i; break; }
 			}
-			print("\n== END OF LOG ==\n");
+			if (hit != 0) {
+				/* AVATRN diag: search for "panic(" — Apple XNU panic banner. */
+				static const char imarker[] = "panic(";
+				uint64_t phit = 0;
+				for (uint64_t i = 0; i + sizeof(imarker) - 1 < klog_len; i++) {
+					unsigned k = 0;
+					while (k < sizeof(imarker) - 1 && klog[i + k] == imarker[k]) k++;
+					if (k == sizeof(imarker) - 1) { phit = i; break; }
+				}
+				if (phit != 0) {
+					uint64_t start = phit > 100 ? phit - 100 : 0;
+					uint64_t end = phit + 1800 < klog_len ? phit + 1800 : klog_len;
+					print("\n== PANIC (at %d/%d) ==\n", phit, klog_len);
+					for (uint64_t i = start; i < end; i++) {
+						put_char(klog[i]);
+					}
+					print("\n== END ==\n");
+				} else {
+					print("\n== No 'panic(' marker; last 2KB: ==\n");
+					uint64_t tail = klog_len > 2048 ? klog_len - 2048 : 0;
+					for (uint64_t i = tail; i < klog_len; i++) {
+						put_char(klog[i]);
+					}
+					print("\n== END ==\n");
+				}
+			} else {
+				/* No panic. Search for apfs: in the whole log anyway. */
+				static const char amarker[] = "apfs:";
+				uint64_t ahit = 0;
+				for (uint64_t i = 0; i + sizeof(amarker) - 1 < klog_len; i++) {
+					unsigned k = 0;
+					while (k < sizeof(amarker) - 1 && klog[i + k] == amarker[k]) k++;
+					if (k == sizeof(amarker) - 1) { ahit = i; break; }
+				}
+				if (ahit != 0) {
+					uint64_t start = ahit > 100 ? ahit - 100 : 0;
+					uint64_t end = ahit + 1500 < klog_len ? ahit + 1500 : klog_len;
+					print("\n== APFS messages (at %d/%d) ==\n", ahit, klog_len);
+					for (uint64_t i = start; i < end; i++) {
+						put_char(klog[i]);
+					}
+					print("\n== END ==\n");
+				} else {
+					print("\n== No apfs: in %d-byte log, last 1KB: ==\n", klog_len);
+					uint64_t tail = klog_len > 1024 ? klog_len - 1024 : 0;
+					for (uint64_t i = tail; i < klog_len; i++) {
+						put_char(klog[i]);
+					}
+					print("\n== END OF LOG ==\n");
+				}
+			}
 		}
 		return;
 	}
@@ -588,16 +644,40 @@ static const struct platform platform_redwood = {
 	.small_cores = 0x0f,
 };
 
+static const struct platform platform_avatrn = {
+	/* io_base must be non-zero: XNU treats a zero SoC base as "no SoC" and skips clock setup. */
+	.name = "avatrn", .io_base = 0x00400000, .io_size = 0x3FC00000,
+	.gic_dist = 0x17200000, .gic_redist = 0x17260000, .uart = 0, .log_other_cpu = 1,
+	.cores = 8, .core_shift = 8,
+	.small_cores = 0x0f,
+};
+
 /* ------------------------------------------------------------------------ */
+
+/*
+ * Hold the last screen for a person to photograph, then reset. The log has
+ * already been written to logdump, so the same information survives the reset
+ * and can be fetched over fastboot/Android.
+ */
+static void
+hold_then_reset(void)
+{
+	uint64_t freq = READ_SYSREG(CNTFRQ_EL0), began = READ_SYSREG(CNTVCT_EL0);
+
+	print("reboot: holding 10 s, then reset\n");
+	flush_log();
+	while (READ_SYSREG(CNTVCT_EL0) - began < 10 * freq) {
+		__asm__ volatile ("wfi");
+	}
+	ST->rt->reset_system(0 /* EfiResetCold */, 0, 0, NULL);
+}
 
 static void
 reboot(void)
 {
 	hc_take_back("before the reset");
 	flush_log();
-	ST->rt->reset_system(0 /* EfiResetCold */, 0, 0, NULL);
-	for (;;) {
-	}
+	hold_then_reset();
 }
 
 /*
@@ -1908,6 +1988,9 @@ block_is_darwin(const efi_partition_info *info, const efi_block_io *bio, const s
 	return 1;
 }
 
+/* forward-declared for the UFS diag; defined further down */
+extern uint64_t win_base, win_size;
+
 static void
 block_start(void)
 {
@@ -2007,21 +2090,62 @@ block_start(void)
 		block_bios[block_shared.parts++] = units[u].bio;
 	}
 	/* the kernel's own transfer list: this loader's area, if the controller is as UEFI keeps it */
-	if (hc_known && hc_list_is_uefis() && hc_rd(HC_UTRLDBR) == 0 && (hc_rd(HC_HCE) & 1)) {
-		memset(hc_area, 0, sizeof(hc_area));
-		flush_dcache((uint64_t)(uintptr_t)hc_area, (uint64_t)(uintptr_t)hc_area + sizeof(hc_area));
-		block_shared.native.hc_pa = HC_PA;
-		block_shared.native.area_pa = (uint64_t)(uintptr_t)hc_area;
-		block_shared.native.area_size = sizeof(hc_area);
-		block_shared.native.ucd_offset = HC_UCD_OFFSET;
-		block_shared.native.ucd_size = HC_UCD_SIZE;
-		block_shared.native.slots = HC_SLOTS;
-		block_shared.native.uefi_utrlba = hc_uefi_lo;
-		block_shared.native.uefi_utrlbau = hc_uefi_hi;
-		print("ufs: the kernel may put its own transfer list in, at %x (this loader's), for the run\n",
-		    (uint64_t)(uintptr_t)hc_area);
-	} else if (hc_requested) {
-		print("ufs: the kernel's own transfer list is not offered: the controller is not as UEFI keeps it\n");
+	{
+		int c_known = hc_known;
+		int c_uefis = hc_list_is_uefis();
+		uint32_t c_utrldbr = hc_rd(HC_UTRLDBR);
+		uint32_t c_hce = hc_rd(HC_HCE);
+		uint32_t c_hcs = hc_rd(HC_HCS);
+		uint32_t c_ver = hc_rd(HC_VER);
+		uint32_t c_utrlba = hc_rd(HC_UTRLBA);
+		uint32_t c_utrlbau = hc_rd(HC_UTRLBAU);
+		int ok = c_known && c_uefis && c_utrldbr == 0 && (c_hce & 1);
+		if (ok) {
+			memset(hc_area, 0, sizeof(hc_area));
+			flush_dcache((uint64_t)(uintptr_t)hc_area, (uint64_t)(uintptr_t)hc_area + sizeof(hc_area));
+			block_shared.native.hc_pa = HC_PA;
+			block_shared.native.area_pa = (uint64_t)(uintptr_t)hc_area;
+			block_shared.native.area_size = sizeof(hc_area);
+			block_shared.native.ucd_offset = HC_UCD_OFFSET;
+			block_shared.native.ucd_size = HC_UCD_SIZE;
+			block_shared.native.slots = HC_SLOTS;
+			block_shared.native.uefi_utrlba = hc_uefi_lo;
+			block_shared.native.uefi_utrlbau = hc_uefi_hi;
+		}
+		/* AVATRN diag: dump all UFS-native loader-side state and pause 10 s so it stays on screen */
+		print("\n\n======== UFS NATIVE DIAG (loader side) ========\n");
+		print("hc_requested=%d hc_known=%d list_is_uefis=%d\n",
+		    (uint64_t)hc_requested, (uint64_t)c_known, (uint64_t)c_uefis);
+		print("UTRLDBR=%x HCE=%x HCS=%x VER=%x\n",
+		    (uint64_t)c_utrldbr, (uint64_t)c_hce, (uint64_t)c_hcs, (uint64_t)c_ver);
+		print("UTRLBA(hi:lo)=%x:%x  uefi_lo=%x uefi_hi=%x\n",
+		    (uint64_t)c_utrlbau, (uint64_t)c_utrlba, (uint64_t)hc_uefi_lo, (uint64_t)hc_uefi_hi);
+		print("area_pa=%x area_size=%x\n",
+		    (uint64_t)(uintptr_t)hc_area, (uint64_t)sizeof(hc_area));
+		{
+			uint64_t ap = (uint64_t)(uintptr_t)hc_area;
+			uint64_t up = ((uint64_t)hc_uefi_hi << 32) | (uint64_t)hc_uefi_lo;
+			int area_in = (ap >= win_base && ap < win_base + win_size);
+			int uefi_in = (up >= win_base && up < win_base + win_size);
+			print("kernel phys window: %x..%x (size %x)\n",
+			    (uint64_t)win_base, (uint64_t)(win_base + win_size), (uint64_t)win_size);
+			print("area_pa in window? %s     uefi_utrl in window? %s\n",
+			    area_in ? "YES (bad: pmap_valid_address will say the loader's area is kernel RAM)" : "no (good)",
+			    uefi_in ? "YES (bad: pmap_valid_address will say UEFI's list is kernel RAM)" : "no (good)");
+		}
+		if (ok) {
+			print("RESULT: offered (loader side OK)\n");
+		} else if (hc_requested) {
+			print("RESULT: NOT offered: %s\n",
+			    !c_known ? "hc_known=0 (hc_init never saw UEFI's list)" :
+			    !c_uefis ? "list_is_uefis=0 (controller moved off UEFI's list)" :
+			    c_utrldbr != 0 ? "UTRLDBR != 0 (requests in flight)" :
+			    "HCE bit 0 == 0 (controller not enabled)");
+		} else {
+			print("RESULT: skipped (ufs_native= not on cmdline)\n");
+		}
+		print("================================================\n\n");
+		BS->stall(10000000); /* 10 s */
 	}
 	hc_refused_reads = 0;
 	hc_log_skips = 0;
@@ -2235,7 +2359,7 @@ charger_start(void)
 	static const efi_guid qcom_charger_guid = QCOM_CHARGER_GUID;
 	efi_status ex_status, qcom_status, init_status = 0;
 
-	if (charger_enabled || PLAT != &platform_redwood) {
+	if (charger_enabled || (PLAT != &platform_redwood && PLAT != &platform_avatrn)) {
 		return;
 	}
 	ex_status = BS->locate_protocol(&charger_ex_guid, NULL, (void **)&CHARGER_EX);
@@ -2503,6 +2627,10 @@ wdt_arm(void)
 {
 	uint64_t ctl = 0, since = 0;
 
+	if (PLAT == &platform_avatrn) {
+		print("watchdog: not armed on avatrn (its SMC call does not return)\n");
+		return;
+	}
 	if (PLAT != &platform_redwood) {
 		return; /* SMC is not routed anywhere useful on QEMU virt */
 	}
@@ -2528,9 +2656,8 @@ exception_handler(int64_t type, uint64_t *ctx)
 	print("loader image base %x (elr offset %x)\n", (uint64_t)(uintptr_t)&__ImageBase,
 	    ctx[EXC_CTX_ELR] - (uint64_t)(uintptr_t)&__ImageBase);
 	flush_log();
-	ST->rt->reset_system(0 /* EfiResetCold */, 0, 0, NULL);
-	for (;;) {
-	}
+	/* AVATRN diag: hold the dump for a photograph, then reset so logdump can be fetched */
+	hold_then_reset();
 }
 
 static void
@@ -2707,9 +2834,35 @@ static struct {
 	uint64_t base;
 	uint32_t width, height, stride;
 } SCREEN;
-static uint64_t win_base, win_size; /* XNU's physical memory window, claimed once */
+/* defined below; forward-declared so block_start's UFS diag can read them */
+extern uint64_t win_base, win_size;
+uint64_t win_base, win_size; /* XNU's physical memory window, claimed once */
 static uint64_t resident_rd_size;   /* root image kept at win_base + RESIDENT_RD_OFFSET, 0 if none */
 static char last_result[64] = "idle";
+
+/*
+ * A 64x64 square in the top-right corner (slot 5, the one the UEFI markers in
+ * BootManager.c and XnuLoader.c leave for us). It is drawn straight into the
+ * framebuffer, so it shows even when the UEFI text console does not: seeing it
+ * means this loader is running.
+ */
+static void
+screen_marker(uint32_t slot, uint32_t color)
+{
+	uint64_t x0, x1, y;
+
+	if (SCREEN.base == 0 || (uint64_t)(slot + 1) * 64 > SCREEN.width) {
+		return;
+	}
+	x0 = SCREEN.width - (uint64_t)(slot + 1) * 64;
+	x1 = x0 + 64;
+	for (y = 0; y < 64 && y < SCREEN.height; y++) {
+		uint32_t *row = (uint32_t *)(uintptr_t)(SCREEN.base + y * SCREEN.stride);
+		for (uint64_t x = x0; x < x1; x++) {
+			row[x] = color;
+		}
+	}
+}
 
 static void
 set_result(const char *what, uint64_t a, uint64_t b)
@@ -3580,6 +3733,10 @@ run_kernel(int have_checkpoint, uint64_t checkpoint)
 		klog = NULL;
 		klog_len = 0;
 	} else {
+		/* AVATRN diag: dump kernel log FIRST, then print the summary last so it stays on
+		 * screen (the summary is the one line we need to read). */
+		write_logs(klog, klog_len);
+		print("\n==== REASON: ====\n");
 		print("kernel returned: log at %x, %d bytes\n", (uint64_t)(uintptr_t)klog, klog_len);
 		if (reason == 2) {
 			print("STOPPED AT CHECKPOINT %d\n", loader_ctx[CTX_ESR]);
@@ -3591,8 +3748,11 @@ run_kernel(int have_checkpoint, uint64_t checkpoint)
 			set_result("early-exception", 0, loader_ctx[CTX_ELR]);
 			klog_len = klog_len > (1u << 20) ? 0 : klog_len;
 		} else {
+			print("ORDERLY RETURN (reason=0) — kernel called loader_return()\n");
 			set_result("returned", klog_len, 0);
 		}
+		print("====\n");
+		return 1;
 	}
 	write_logs(klog, klog_len);
 	return 1;
@@ -3829,15 +3989,21 @@ fb_command(char *cmd)
 				fb_reply("OKAY", download_to_ramdisk ? "0xffffffff" : "0x03f00000");
 			} else if (str_eq(var, "result")) {
 				fb_reply("OKAY", last_result);
-			} else if (str_eq(var, "screen") && SCREEN.base != 0) {
-				/* width height bytes-per-row */
-				uint32_t mark = log_len;
-				print("%d %d %d", (uint64_t)SCREEN.width, (uint64_t)SCREEN.height, (uint64_t)SCREEN.stride);
-				log_buf[log_len] = 0;
-				fb_reply("OKAY", log_buf + mark);
-				log_len = mark;
-			} else {
-				fb_reply("OKAY", "");
+} else if (str_eq(var, "screen") && (SCREEN.base != 0 || (PLAT == &platform_avatrn && SCREEN.base == 0))) {
+		if (SCREEN.base == 0 && PLAT == &platform_avatrn) {
+			SCREEN.base = 0xB8000000;
+			SCREEN.width = 1080;
+			SCREEN.height = 2400;
+			SCREEN.stride = 1080 * 4;
+		}
+		/* width height bytes-per-row */
+		uint32_t mark = log_len;
+		print("%d %d %d", (uint64_t)SCREEN.width, (uint64_t)SCREEN.height, (uint64_t)SCREEN.stride);
+		log_buf[log_len] = 0;
+		fb_reply("OKAY", log_buf + mark);
+		log_len = mark;
+	} else {
+		fb_reply("OKAY", "");
 			}
 		} else if (starts_with(cmd, "oem ramdisk")) {
 			/* "oem ramdisk": the next download is a root image for the resident area; "oem ramdisk none" drops it */
@@ -3931,15 +4097,21 @@ fb_command(char *cmd)
 				sent += chunk;
 			}
 			fb_reply("OKAY", "");
-		} else if (starts_with(cmd, "oem screenshot")) {
-			/* stage the raw framebuffer; "getvar screen" gives its geometry */
-			if (SCREEN.base == 0) {
-				fb_reply("FAIL", "no display");
-				return;
-			}
-			staged_data = (const char *)(uintptr_t)SCREEN.base;
-			staged_len = (uint64_t)SCREEN.stride * SCREEN.height;
-			fb_reply("OKAY", "");
+} else if (starts_with(cmd, "oem screenshot")) {
+		/* stage the raw framebuffer; "getvar screen" gives its geometry */
+		if (SCREEN.base == 0 && PLAT == &platform_avatrn) {
+			SCREEN.base = 0xB8000000;
+			SCREEN.width = 1080;
+			SCREEN.height = 2400;
+			SCREEN.stride = 1080 * 4;
+		}
+		if (SCREEN.base == 0) {
+			fb_reply("FAIL", "no display");
+			return;
+		}
+		staged_data = (const char *)(uintptr_t)SCREEN.base;
+		staged_len = (uint64_t)SCREEN.stride * SCREEN.height;
+		fb_reply("OKAY", "");
 		} else if (starts_with(cmd, "oem recording")) {
 			/* stage what the kernel's display driver recorded (boot-arg rec_secs) */
 			if (recording_data == NULL) {
@@ -4304,6 +4476,12 @@ print_banner(void)
 	print("   #   #  #   #  #   #  #####   ###   ####\n");
 	print("\n");
 	print("   hello hakios-kernel!\n");
+	/*
+	 * Which build this is. An image whose loader predates a change says so here, instead of failing
+	 * later with "unknown command" or "no kernel in payload" and leaving the reason to a guess.
+	 */
+	print("   loader %s %s, payload base %x, at most %x\n", __DATE__, __TIME__,
+	    (uint64_t)PAYLOAD_BASE, (uint64_t)PAYLOAD_MAX_SIZE);
 	print("   kernel.ver=%s\n", version ? version : "unknown");
 	print("\n");
 }
@@ -4345,12 +4523,15 @@ efi_main(efi_handle image, efi_system_table *st)
 		SCREEN.stride = GOP->mode->info->pixels_per_scanline * 4;
 		if (SCREEN.base == 0xE1000000ULL) {
 			PLAT = &platform_redwood;
+		} else if (SCREEN.base == 0xB8000000ULL) {
+			PLAT = &platform_avatrn;
 		} else {
 			ramfb_phone_screen();
 		}
 		print("display %d x %d at %x\n", (uint64_t)SCREEN.width, (uint64_t)SCREEN.height, SCREEN.base);
 	}
 	print("platform %s\n", PLAT->name);
+	screen_marker(5, 0x0000FFFF);   /* cyan: the loader has the framebuffer */
 
 	install_exception_hook();
 	wdt_arm();

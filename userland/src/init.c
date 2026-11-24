@@ -1541,7 +1541,13 @@ main(int argc, char **argv, char **envp)
 		const char *dev = boot_arg("root_apfs");
 
 		if (dev != NULL) {
+			printf("AVATRN DIAG: calling flash_root(%s)...\n", dev);
 			flash_root(dev);
+			printf("AVATRN DIAG: flash_root done, flash_root_mode=%d\n", flash_root_mode);
+			printf("AVATRN DIAG: pausing 20s so you can read flash_root output\n");
+			sleep(20);
+		} else {
+			printf("AVATRN DIAG: no root_apfs boot-arg, skipping flash_root\n");
 		}
 	}
 
@@ -1562,7 +1568,9 @@ main(int argc, char **argv, char **envp)
 	configure_inject();
 	configure_vnodes();
 	run_rc(in_image("/etc/rc"));
-	printf("\n=== init: done ===\n");
+	printf("\n=== init: done, pausing 30s so console output can be read ===\n");
+	sleep(30);
+	printf("\n=== init: halting now ===\n");
 	reboot(RB_HALT);
 	return failures != 0;
 }

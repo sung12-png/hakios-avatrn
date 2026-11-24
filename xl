@@ -128,7 +128,10 @@ firmware() {
 	case "${XL_FIRMWARE:-}" in
 	u-boot|silicium) echo "$XL_FIRMWARE"; return ;;
 	esac
-	if [ -f Mu-Silicium/Build/redwoodPkg/RELEASE_CLANGPDB/FV/SILICIUM_UEFI.fd ] || [ -f devices/redwood/prebuilt/SILICIUM_UEFI.fd ]; then
+	local d=${DEVICE:-redwood}
+	if [ -f Mu-Silicium/Build/${d}Pkg/RELEASE_CLANGPDB/FV/SILICIUM_UEFI.fd ] \
+	|| [ -f Mu-Silicium/Build/${d}Pkg/DEBUG_CLANGPDB/FV/SILICIUM_UEFI.fd ] \
+	|| [ -f devices/${d}/prebuilt/SILICIUM_UEFI.fd ]; then
 		echo silicium
 	else
 		echo u-boot
@@ -148,7 +151,7 @@ enter() {
 	xnuloader/mkpayload.py -o usb-payload.bin loader.efi=$L --usb >/dev/null || { echo "xl: payload build failed"; return 1; }
 	case "$(firmware)" in
 	u-boot) tools/mkubootimg.py -d "${DEVICE:-redwood}" -l $L -p usb-payload.bin -o xnu-usb.img >/dev/null ;;
-	*) ./mkxnuimg.py -p usb-payload.bin -o xnu-usb.img >/dev/null ;;
+	*) ./mkxnuimg.py -d "${DEVICE:-redwood}" -p usb-payload.bin -o xnu-usb.img >/dev/null ;;
 	esac || { echo "xl: image build failed ($(firmware))"; return 1; }
 	# Right after the phone enters fastboot the first "boot" is sometimes not taken: try twice.
 	local try

@@ -156,7 +156,23 @@ fi
 # --- the small image ------------------------------------------------------------------------------
 rm -rf root
 mkdir -p root/sbin root/bin root/etc root/share root/LaunchDaemons
+# AVATRN: flash_root (init.c) mounts the Darwin volume at /flash. Mount(2) needs the mountpoint
+# to exist first, else ENOENT without reaching the APFS driver.
+mkdir -p root/flash
+# AVATRN: libhakios.dylib etc. have install_name /redwood/lib/... and are inject'd into
+# backboardd/SpringBoard/etc. After switch_root, ramdisk is at /private/preboot and init binds
+# /private/preboot/redwood -> /redwood. For /redwood/lib/libhakios.dylib to resolve, we need
+# /private/preboot/redwood/lib symlinked to /private/preboot/lib (where the dylibs actually are).
+# Use RELATIVE symlinks so they resolve the same pre- and post-switch_root.
+mkdir -p root/redwood
+ln -sfn ../lib root/redwood/lib
+ln -sfn ../bin root/redwood/bin
+ln -sfn ../share root/redwood/share
+ln -sfn ../etc root/redwood/etc
 cp obj/init root/sbin/init
+# AVATRN: XNU kernel's load_init_program only tries /usr/appleInternal/sbin/launchd.development and
+# /sbin/launchd (not /sbin/init), so place HakiOS's init binary at the launchd path too.
+cp obj/init root/sbin/launchd
 cp obj/child root/bin/child
 # The data volume into the flash and back (src/var_store.c), and the job that saves it when a run
 # ends: the program and its job together, away from the Darwin job list below, which several working

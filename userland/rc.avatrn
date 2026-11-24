@@ -1,0 +1,3 @@
+# avatrn test rc: don't exec launchd.darwin (not present).
+# Just stay alive so init doesn't halt and the screen output is visible.
+sleep 300

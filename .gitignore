@@ -37,6 +37,9 @@
 !/xnu-deps/
 !/prebuilt/
 !/wifi/
+!/nura/
+/nura/out-local/
+/nura/build-*.log
 
 __pycache__/
 *~
