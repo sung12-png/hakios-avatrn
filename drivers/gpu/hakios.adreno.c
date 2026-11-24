@@ -106,7 +106,8 @@
 /*
  * boot-arg gpu_soc=sm7435: the Adreno 710 of the Motorola Edge 2024 (avatrn, "parrot"). Only steps
  * 1 to 11 know it so far (4 switches CX on, 5 starts its clocks, 6-9 read, 10 tries the GMU's memory,
- * 11 only asks TrustZone questions, 12 has it check the zap shader's signature); everything after still has the SC7280's
+ * 11 only asks TrustZone questions, 12 has it check the zap shader's signature, 13 gives the GMU
+ * its memory behind the SMMU); everything after still has the SC7280's
  * addresses and is refused. Offsets: Motorola's gcc-parrot.c and device tree, and JosephMontfort's garnet port.
  */
 static bool is_a710;
@@ -1907,7 +1908,7 @@ step_gmu_space(void)
 		return false;
 	}
 	announce("find the GMU's firmware, fw/a660_gmu.bin, in the small image, and make the memory it asks for");
-	gmu_firmware = image_file("fw", "a660_gmu.bin", &gmu_firmware_size);
+	gmu_firmware = image_file("fw", is_a710 ? "gmu_gen70000.bin" : "a660_gmu.bin", &gmu_firmware_size);
 	if (gmu_firmware == NULL) {
 		return false;
 	}
@@ -4000,9 +4001,9 @@ adreno_run(void)
 		last_step = STEPS;
 	}
 	PE_parse_boot_argn("adreno_watch", &watch_seconds, sizeof(watch_seconds));
-	if (is_a710 && last_step > 12) {
-		printf("adreno: a710: steps past 12 do not know this chip yet: stopping at 12\n");
-		last_step = 12;
+	if (is_a710 && last_step > 13) {
+		printf("adreno: a710: steps past 13 do not know this chip yet: stopping at 13\n");
+		last_step = 13;
 	}
 	for (newest_step = last_step; newest_step > 0 && (skip_steps & 1u << newest_step); newest_step--) {
 	}
