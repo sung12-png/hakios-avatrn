@@ -75,12 +75,22 @@ if [ ! -x venv/bin/python3 ]; then
 fi
 export PATH=$B/venv/bin:$PATH
 
+# An older ld64 (theos's cctools port) cannot read the SDK's library stubs ("unsupported tapi file type"):
+# nothing links with it. Where a program of one line does not link and LLVM's linker is there, that one is used.
+LDX=
+printf 'int main(void){return 0;}\n' > ldtest.c
+if ! "$CC" -arch arm64 -isysroot "$SDK" ldtest.c -o ldtest.out 2>/dev/null && command -v ld64.lld >/dev/null; then
+	LDX=", '--ld-path=$(command -v ld64.lld)', '-mlinker-version=705'"
+	echo "mk-mesa.sh: linking with $(command -v ld64.lld)"
+fi
+rm -f ldtest.c ldtest.out
+
 # the compiler is the kernel's wrapper: it names the target (arm64-apple-ios) and the linker (ld64)
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC', '-arch', 'arm64', '-isysroot', '$SDK']
-cpp = ['$CC++', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit']
-objc = ['$CC', '-arch', 'arm64', '-isysroot', '$SDK']
+c = ['$CC', '-arch', 'arm64', '-isysroot', '$SDK'$LDX]
+cpp = ['$CC++', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit'$LDX]
+objc = ['$CC', '-arch', 'arm64', '-isysroot', '$SDK'$LDX]
 ar = 'llvm-ar'
 ranlib = 'llvm-ranlib'
 strip = 'llvm-strip'

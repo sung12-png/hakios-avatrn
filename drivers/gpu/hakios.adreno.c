@@ -3582,7 +3582,7 @@ hakios_gpu_parameter(uint32_t which, uint64_t *value)
 		*value = 512 * 1024;
 		return true;
 	case 0x03:                              /* CHIP_ID, with the speed bin above it */
-		*value = GPU_CHIP_ID | (uint64_t)speed_bin << 32;
+		*value = (is_a710 ? 0x07010000ull : GPU_CHIP_ID) | (uint64_t)speed_bin << 32;
 		return true;
 	case 0x04:                              /* MAX_FREQ */
 		*value = core_khz * 1000ull;
@@ -3594,7 +3594,7 @@ hakios_gpu_parameter(uint32_t which, uint64_t *value)
 		*value = 1;
 		return true;
 	case 0x10:                              /* HIGHEST_BANK_BIT */
-		*value = 14;
+		*value = is_a710 ? 15 : 14;     /* as the core's registers are set (a710_core_registers()) */
 		return true;
 	case 0x12:                              /* UBWC_SWIZZLE */
 		*value = 6;
@@ -3777,7 +3777,7 @@ hakios_gpu_worked(uint64_t *microseconds, uint32_t *submissions, uint32_t by[7])
 uint32_t
 hakios_gpu_submit(const uint64_t *addresses, const uint32_t *words, uint32_t count)
 {
-	uint32_t wanted = 26 + 4 * count, room = 0;
+	uint32_t wanted = 28 + 4 * count, room = 0;
 
 	for (int i = 0; i < 20000; i++) {
 		room = (rd(gpu.base + CP_RB_RPTR) + RING_WORDS - ring_at - 1) % RING_WORDS;
@@ -3794,6 +3794,11 @@ hakios_gpu_submit(const uint64_t *addresses, const uint32_t *words, uint32_t cou
 		gpu_fence = 1;
 	}
 	ring_time(gpu_fence, 0);
+	if (is_a710) {
+		/* a7xx: the drawing pipe, concurrent binning off (this GPU has no second one) */
+		ring_command(CP_THREAD_CONTROL, 1);
+		ring(1u | 1u << 27);
+	}
 	ring_command(CP_EVENT_WRITE, 1);
 	ring(EVENT_INVALIDATE_DEPTH);
 	ring_command(CP_EVENT_WRITE, 1);
@@ -3810,7 +3815,8 @@ hakios_gpu_submit(const uint64_t *addresses, const uint32_t *words, uint32_t cou
 	ring_time(gpu_fence, 1);
 	ring_register(CP_SCRATCH_REG2, gpu_fence);
 	ring_command(CP_EVENT_WRITE, 4);
-	ring(EVENT_CACHE_FLUSH);
+	/* a7xx writes the word only with bit 27 set (step 22; Linux's a7xx_submit: CACHE_CLEAN) */
+	ring(is_a710 ? 0x31 | 1u << 27 : EVENT_CACHE_FLUSH);
 	ring(CORE_SCRATCH_ADDRESS + GPU_FENCE_AT);
 	ring(0);
 	ring(gpu_fence);
@@ -3871,11 +3877,14 @@ hakios_adreno_minute(void)
 	if (!gpu_kept) {
 		return;
 	}
+	if (is_a710) {
+		tsens.phys = 0x0c263000;        /* parrot: gpuss-0, gpuss-1 are sensors 11 and 12 of tsens0 (dt) */
+	}
 	need(&tsens);
 	for (unsigned i = 0; i < 2; i++) {
 		tenths[i] = -2730;
 		for (unsigned again = 0; again < 16 && tenths[i] == -2730; again++) {
-			uint32_t status = rd(tsens.base + TSENS_STATUS(1 + i));
+			uint32_t status = rd(tsens.base + TSENS_STATUS((is_a710 ? 11 : 1) + i));
 
 			if (status & TSENS_VALID) {
 				tenths[i] = (int32_t)(status << 20) >> 20;
