@@ -203,6 +203,20 @@ flash_root(const char *dev)
 		/* the audio DSP's firmware and the speakers' configuration, from the RAM image as in a RAM boot */
 		check(synthetic_dir("/flash/fw") && bind_dir("/fw", "/flash/fw"), "the firmware on /fw (adsp=1, sound=N)");
 	}
+	if (stat("/overlay-spotlight", &fw_st) == 0) {
+		/*
+		 * Files of the search framework that the system image was made without (sysimage/select-system.py
+		 * leaves out *.dat and *.bin of frameworks, and with them Spotlight's ranking models, without which
+		 * searchd stops itself at "-[NSURL initFileURLWithPath:]: nil string parameter"): this directory of
+		 * the boot volume over the framework's, as a union mount, which keeps the rest of it in sight.
+		 */
+		ok = mount("bindfs", "/flash/System/Library/PrivateFrameworks/SpotlightServices.framework",
+		    MNT_RDONLY | MNT_UNION, (void *)"/overlay-spotlight") == 0;
+		if (!ok) {
+			printf("  bindfs /overlay-spotlight on SpotlightServices.framework, union: %s\n", strerror(errno));
+		}
+		check(ok, "Spotlight's models from this image");
+	}
 	if (stat("/jb-bin", &fw_st) == 0) {
 		/*
 		 * The package manager's prefix is in the boot volume (/jb), and Sileo runs mv, cp, rm, mkdir
