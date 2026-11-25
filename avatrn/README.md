@@ -28,6 +28,24 @@ The RAM image needs, besides the above:
   add `--ld-path=/usr/bin/ld64.lld -mlinker-version=705` to its compile line (as mk-mesa.sh does).
   The one used here was compiled by hand that way, after mkeagl.py made eagl_gen.h.
 
+## Saving (/private/var kept between boots)
+Verified: dark mode and iOS's data are there after a restart. Add to the boot arguments:
+
+    ufs_write=1 ufs_window=userdata var_hfs=ufs_darwin_data
+
+/private/var is then a 16 GB journaled HFS Plus volume in blocks 8388608..12582911 of userdata (32 GiB
+in; the system image is at its start). Loader and kernel each refuse a write anywhere else;
+ufs_window_dry=1 shows the range and writes nothing. No partition table change.
+
+Needed once: the empty volume (needs mkfs.hfsplus; flashing it again empties it):
+
+    python3 tools/mkdatavol.py --userdata datavol.simg && fastboot flash userdata datavol.simg
+
+Needed in the image: userland/src/init.c built (the prebuilt init is older and does not mount it), as
+/sbin/init, /sbin/launchd and the /redwood copies; and a loader built as below.
+No orderly shutdown: what changed in the last seconds before the power button may be lost. Once writing
+has started the kernel reads through the loader too, not by its own driver.
+
 ## Kernel
 Build with CONFIG_HAKIOS_UFS, CPUFREQ, AVATRN_GOODIX, AVATRN_BUTTONS = y (tools/make-kernel.sh).
 
