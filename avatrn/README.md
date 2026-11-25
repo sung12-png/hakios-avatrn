@@ -9,6 +9,25 @@ read-only.
     buttons=1 amfi_get_out_of_my_way=1 cs_enforcement_disable=1
 (add -v for the log). Diagnostics: touch_delay=N touch_trace=1 touch_step=N touch_boot_ms=N.
 
+## GPU-accelerated iOS (Adreno 710)
+The window server draws by the GPU through Mesa; reported a lot smoother, with some frame drops
+(500 MHz, CPUs at top speed). Added to the boot arguments above:
+
+    adreno=21 adreno_keep=1 adreno_pause=10 gpu_soc=sm7435 adreno_speed=3
+    cpufreq=1 soc_epss=0x17d91000 epss_cores=4 soc_rsc=0x17a20000
+
+(no gpu_delay: the GPU has to be there before the first program; gl=0: software drawing again).
+adreno_speed 1, 2, 3 = 295, 345, 500 MHz. Nothing throttles the GPU when hot: watch the log's
+temperature line. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
+
+The RAM image needs, besides the above:
+- fw/ (stored plain): a710_sqe.fw, a710_zap.mdt, .b00 to .b02, gmu_gen70000.bin from the phone's own
+  /vendor/firmware. Motorola's files: never commit them or pass on an image that holds them.
+- lib/libOSMesa.8.dylib: tools/mk-mesa.sh (needs meson; its venv in xnu-deps/build/mesa/venv).
+- lib/libhakios.gl.dylib: userland/build.sh GL=1 builds it; where theos's ld cannot read the SDK,
+  add `--ld-path=/usr/bin/ld64.lld -mlinker-version=705` to its compile line (as mk-mesa.sh does).
+  The one used here was compiled by hand that way, after mkeagl.py made eagl_gen.h.
+
 ## Kernel
 Build with CONFIG_HAKIOS_UFS, CPUFREQ, AVATRN_GOODIX, AVATRN_BUTTONS = y (tools/make-kernel.sh).
 
