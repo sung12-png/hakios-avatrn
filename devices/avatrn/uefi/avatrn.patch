@@ -1,0 +1,305 @@
+--- a/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/BootManager.c
++++ b/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/BootManager.c
+@@ -31,6 +31,42 @@
+ STATIC UINTN YPos = 0;
+ 
+ //
++// Diagnostic markers: 64x64 squares along the top-right of the screen, drawn
++// straight into the GOP so they are visible even if the text console is not.
++// Slot 0: the XNUP hook was reached.  Slot 1: the payload magic matched.
++// Slots 2-4 are drawn by XnuLoader.c (loader entry / LoadImage ok / failed).
++// Slot 5 is drawn by the XNU loader itself once it has the framebuffer.
++//
++STATIC
++VOID
++DrawBootMarker (
++  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *Gop,
++  IN UINTN                          Slot,
++  IN UINT32                         Color
++  )
++{
++  UINT32  Pixels[64 * 64];
++  UINTN   Index;
++  UINTN   X;
++
++  if (Gop == NULL || Gop->Mode == NULL || Gop->Mode->Info == NULL) {
++    return;
++  }
++
++  if (Gop->Mode->Info->HorizontalResolution < (Slot + 1) * 64) {
++    return;
++  }
++
++  X = Gop->Mode->Info->HorizontalResolution - ((Slot + 1) * 64);
++  for (Index = 0; Index < ARRAY_SIZE (Pixels); Index++) {
++    Pixels[Index] = Color;
++  }
++
++  Gop->Blt (Gop, (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)Pixels, EfiBltBufferToVideo,
++            0, 0, X, 0, 64, 64, 0);
++}
++
++//
+ // BDS Combo Message
+ //
+ STATIC CONST CHAR8 *ComboMessage = "[Volume Up] Boot Manager";
+@@ -111,6 +147,37 @@
+     DEBUG ((EFI_D_ERROR, "%a: Failed to Display Boot Logo! Status = %r\n", __FUNCTION__, Status));
+   }
+ 
++  // HakiOS: if fastboot delivered an XNU_PAYLOAD (the shim copied it to XNU_PAYLOAD_BASE),
++  // hand control to our loader now, BEFORE BDS can discover and launch any other OS. On a normal
++  // power-on the magic does not match and this falls through to the usual BDS flow.
++  {
++    XNU_PAYLOAD_HEADER *XnuHdr = (XNU_PAYLOAD_HEADER *)(UINTN)XNU_PAYLOAD_BASE;
++
++    DrawBootMarker (GopProtocol, 0, 0x00FF00FF);   // magenta: the hook ran
++
++    XnuLogProbe (XnuHdr->Magic, XnuHdr->Size);
++
++    if (gST->ConOut != NULL) {
++      CHAR16 Msg[128];
++
++      UnicodeSPrint (Msg, sizeof (Msg), L"\r\nXNUP probe: base=%lx magic=%08lx size=%lx\r\n",
++                     (UINT64)XNU_PAYLOAD_BASE, (UINT64)XnuHdr->Magic, (UINT64)XnuHdr->Size);
++      gST->ConOut->OutputString (gST->ConOut, Msg);
++      gBS->Stall (2000000);
++    }
++
++    if (XnuHdr->Magic == XNU_PAYLOAD_MAGIC && XnuHdr->Size <= XNU_PAYLOAD_MAX_SIZE) {
++      DrawBootMarker (GopProtocol, 1, 0x0000FF00);   // green: magic matched
++      if (gST->ConOut != NULL) {
++        gST->ConOut->OutputString (gST->ConOut, L"XNUP: starting loader.efi\r\n");
++      }
++      XnuLoaderMain ();
++      if (gST->ConOut != NULL) {
++        gST->ConOut->OutputString (gST->ConOut, L"XNUP: XnuLoaderMain returned\r\n");
++      }
++    }
++  }
++
+   // Register Key Callback
+   Status = RegisterKeyCallback ((EFI_DEVICE_PATH_PROTOCOL *)&KeypadDevicePath);
+   if (!EFI_ERROR (Status) && GopProtocol != NULL) {
+--- a/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/XnuLoader.c
++++ b/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/XnuLoader.c
+@@ -235,6 +235,57 @@
+ //
+ STATIC
+ VOID
++Show (
++  IN CONST CHAR16 *Text
++  )
++{
++  if (gST->ConOut != NULL) {
++    gST->ConOut->OutputString (gST->ConOut, (CHAR16 *)Text);
++  }
++}
++
++STATIC EFI_GRAPHICS_OUTPUT_PROTOCOL  *mMarkerGop;
++
++//
++// Top-right marker squares continue the ones BootManager.c draws in slots 0/1:
++// slot 2 = this function was entered, slot 3 = LoadImage succeeded and the
++// loader is about to start, slot 4 = the loader could not be loaded.
++//
++STATIC
++VOID
++MarkScreen (
++  IN UINTN   Slot,
++  IN UINT32  Color
++  )
++{
++  EFI_STATUS  Status;
++  UINT32      Pixels[64 * 64];
++  UINTN       Index;
++  UINTN       X;
++
++  if (mMarkerGop == NULL) {
++    Status = gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&mMarkerGop);
++    if (EFI_ERROR (Status)) {
++      return;
++    }
++  }
++
++  if (mMarkerGop->Mode == NULL || mMarkerGop->Mode->Info == NULL ||
++      mMarkerGop->Mode->Info->HorizontalResolution < (Slot + 1) * 64) {
++    return;
++  }
++
++  X = mMarkerGop->Mode->Info->HorizontalResolution - ((Slot + 1) * 64);
++  for (Index = 0; Index < ARRAY_SIZE (Pixels); Index++) {
++    Pixels[Index] = Color;
++  }
++
++  mMarkerGop->Blt (mMarkerGop, (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)Pixels, EfiBltBufferToVideo,
++                   0, 0, X, 0, 64, 64, 0);
++}
++
++STATIC
++VOID
+ StartPayloadLoader ()
+ {
+   XNU_PAYLOAD_HEADER *Header = (XNU_PAYLOAD_HEADER *)XNU_PAYLOAD_BASE;
+@@ -245,21 +296,51 @@
+     return;
+   }
+ 
++  MarkScreen (2, 0x000000FF);   // blue: StartPayloadLoader entered
++  Log ("[loader.efi]\n");
++  FlushLog ();
++
+   Cursor = (UINT8 *)(Header + 1);
+   End    = Cursor + Header->Size;
+ 
+   while (Cursor + sizeof (XNU_PAYLOAD_ENTRY) <= End) {
+     XNU_PAYLOAD_ENTRY *Entry = (XNU_PAYLOAD_ENTRY *)Cursor;
++    CHAR8              Name[17];
+ 
+     if (Entry->Name[0] == 0) {
+       break;
+     }
+ 
++    CopyMem (Name, Entry->Name, 16);
++    Name[16] = 0;
++    Log ("entry %a size=%x\n", Name, Entry->Size);
++    FlushLog ();
++
+     if (AsciiStrnCmp (Entry->Name, "loader.efi", sizeof (Entry->Name)) == 0) {
+       EFI_HANDLE Handle;
++      EFI_STATUS Status;
++      CHAR16     Msg[96];
+ 
+-      if (!EFI_ERROR (gBS->LoadImage (FALSE, gImageHandle, NULL, Entry + 1, Entry->Size, &Handle))) {
+-        gBS->StartImage (Handle, NULL, NULL);
++      Show (L"XnuLoader: LoadImage loader.efi...\r\n");
++      Log ("LoadImage source=%lx size=%x\n", (UINT64)(UINTN)(Entry + 1), Entry->Size);
++      FlushLog ();
++      Status = gBS->LoadImage (FALSE, gImageHandle, NULL, Entry + 1, Entry->Size, &Handle);
++      Log ("LoadImage status=%r\n", Status);
++      FlushLog ();
++      if (EFI_ERROR (Status)) {
++        MarkScreen (4, 0x00FF0000);   // red: LoadImage failed
++        UnicodeSPrint (Msg, sizeof (Msg), L"XnuLoader: LoadImage failed: %r\r\n", Status);
++        Show (Msg);
++      } else {
++        MarkScreen (3, 0x00FFFF00);   // yellow: about to StartImage
++        Show (L"XnuLoader: StartImage...\r\n");
++        Log ("StartImage handle=%lx\n", (UINT64)(UINTN)Handle);
++        FlushLog ();
++        Status = gBS->StartImage (Handle, NULL, NULL);
++        Log ("StartImage returned=%r\n", Status);
++        FlushLog ();
++        UnicodeSPrint (Msg, sizeof (Msg), L"XnuLoader: StartImage returned: %r\r\n", Status);
++        Show (Msg);
+       }
+ 
+       return;
+@@ -267,24 +348,71 @@
+ 
+     Cursor += sizeof (XNU_PAYLOAD_ENTRY) + ALIGN_VALUE (Entry->Size, 16);
+   }
++
++  MarkScreen (4, 0x00FF0000);   // red: no loader.efi entry
++  Log ("no loader.efi entry\n");
++  FlushLog ();
++  Show (L"XnuLoader: no loader.efi entry in payload\r\n");
+ }
+ 
++//
++// Called by the BootManager hook before it checks the magic, so that a payload
++// that is missing or was overwritten before DXE is still recorded in logdump.
++//
+ VOID
+-XnuLoaderMain ()
++XnuLogProbe (
++  IN UINT32  Magic,
++  IN UINT32  Size
++  )
+ {
+   EFI_TIME Time;
+ 
+-  // Normally does not return
+-  StartPayloadLoader ();
++  if (mLog == NULL) {
++    mLog = AllocateZeroPool (LOG_SIZE);
++  }
++
++  if (mLog == NULL) {
++    return;
++  }
++
++  mLogLen = 0;
++  mLog[0] = 0;
++  Log ("== XNU HOOK PROBE ==\n");
++  if (!EFI_ERROR (gRT->GetTime (&Time, NULL))) {
++    Log ("time=%04d-%02d-%02d %02d:%02d:%02d\n", Time.Year, Time.Month, Time.Day, Time.Hour, Time.Minute, Time.Second);
++  }
++
++  Log ("base=%lx magic=%08x size=%x\n", (UINT64)XNU_PAYLOAD_BASE, Magic, Size);
++  FlushLog ();
++}
+ 
++VOID
++XnuLoaderMain ()
++{
++  EFI_TIME            Time;
++  XNU_PAYLOAD_HEADER *Header = (XNU_PAYLOAD_HEADER *)XNU_PAYLOAD_BASE;
++
++  //
++  // Write the payload header before starting the loader: if the loader or
++  // LoadImage never returns, this is all that can be read back later.
++  //
+   mLog = AllocateZeroPool (LOG_SIZE);
+   if (mLog != NULL) {
+-    Log ("== XNULOADER LOG v1 ==\n");
++    Log ("== XNULOADER LOG v2 ==\n");
+ 
+     if (!EFI_ERROR (gRT->GetTime (&Time, NULL))) {
+       Log ("time=%04d-%02d-%02d %02d:%02d:%02d\n", Time.Year, Time.Month, Time.Day, Time.Hour, Time.Minute, Time.Second);
+     }
+ 
++    Log ("[payload]\nbase=%lx magic=%08x size=%x\n", (UINT64)XNU_PAYLOAD_BASE, Header->Magic, Header->Size);
++    FlushLog ();
++  }
++
++  // Normally does not return
++  StartPayloadLoader ();
++
++  if (mLog != NULL) {
++    Log ("[loader] returned without starting\n");
+     FlushLog ();
+     LogCpu ();
+     FlushLog ();
+@@ -299,6 +427,8 @@
+     FlushLog ();
+   }
+ 
+-  // The phone is unattended: always come back to Android.
++  // AVATRN diag: hold the result on screen briefly, then come back on USB.
++  Show (L"XnuLoader: holding 10 s for diag\r\n");
++  gBS->Stall (10 * 1000 * 1000);
+   gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+ }
+--- a/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/XnuLoader.h
++++ b/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/XnuLoader.h
+@@ -6,7 +6,7 @@
+ // The region is marked reserved in the device memory map.
+ //
+ #ifndef XNU_PAYLOAD_BASE
+-#define XNU_PAYLOAD_BASE      0xF0000000ULL
++#define XNU_PAYLOAD_BASE      0xF4000000ULL
+ #endif
+ #define XNU_PAYLOAD_MAX_SIZE  0x04000000ULL
+ #define XNU_PAYLOAD_MAGIC     0x50554E58 // "XNUP"
+@@ -32,4 +32,10 @@
+ VOID
+ XnuLoaderMain ();
+ 
++VOID
++XnuLogProbe (
++  IN UINT32  Magic,
++  IN UINT32  Size
++  );
++
+ #endif /* _XNU_LOADER_H_ */

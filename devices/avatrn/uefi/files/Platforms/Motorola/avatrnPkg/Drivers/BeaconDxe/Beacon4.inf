@@ -1,0 +1,22 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = Beacon4Dxe
+  FILE_GUID      = 6b1f6c2e-2d44-4f0e-9f0a-5a7a1c0c0004
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = Beacon4Entry
+
+[Sources]
+  BeaconDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+
+[Depex]
+  TRUE
+
+[BuildOptions]
+  *_*_*_CC_FLAGS = -DBEACON_SLOT=4 -DBEACON_COLOR=0x00FF00FF -DBEACON_ENTRY=Beacon4Entry

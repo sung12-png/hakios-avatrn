@@ -1,0 +1,45 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = LinuxBootDxe
+  FILE_GUID      = 8c1d2e3f-5a6b-4c7d-9e8f-0a1b2c3d4e5f
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = LinuxBootEntry
+
+[Sources]
+  LinuxBootDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  QcomPkg/QcomPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  DebugLib
+  MemoryAllocationLib
+  BaseMemoryLib
+  IoLib
+  PrintLib
+  BaseLib
+
+[Guids]
+  gFdtTableGuid
+  gEfiEndOfDxeEventGroupGuid
+  gUsbControllerInitGuid
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiPartitionInfoProtocolGuid
+  gEfiLoadFile2ProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiUsbMsdProtocolGuid
+  gEfiUsbfnIoProtocolGuid
+  gEfiLoadedImageProtocolGuid
+  gEfiDriverBindingProtocolGuid
+
+[Depex]
+  TRUE

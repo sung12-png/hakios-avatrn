@@ -1,0 +1,25 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = SpmiAbortSkipDxe
+  FILE_GUID      = 6b1f6c2e-2d44-4f0e-9f0a-5a7a1c0c5e11
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = SpmiAbortSkipEntry
+
+[Sources]
+  SpmiAbortSkipDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  DebugLib
+
+[Protocols]
+  gEfiCpuArchProtocolGuid
+
+[Depex]
+  gEfiCpuArchProtocolGuid

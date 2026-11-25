@@ -1,3 +1,7 @@
+> **Fork for the Motorola Edge 2024 (avatrn, SM7435)** of
+> [oosexgang/hakios-xnu-kernel](https://github.com/oosexgang/hakios-xnu-kernel). Experimental.
+> Read [avatrn/README.md](avatrn/README.md) first; UEFI: [devices/avatrn/uefi](devices/avatrn/uefi/README.md).
+
 # HakiOS
 
 English · [中文](README.zh.md) · [Українська](README.uk.md)
