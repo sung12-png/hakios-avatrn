@@ -12,9 +12,8 @@ Experimental. Use at your own risk, only on your own phone.
 - You need your own firmware: Apple's IPSW and the phone's GPU firmware. Neither is in this repository.
 
 ## Known problems (2026-11-25)
-- With a system image holding all of Apple's files, opening search (the keyboard) freezes touch and
-  buttons; the kernel and storage go on. With the trimmed image the home screen restarts instead.
-  Cause not found yet.
+- With the trimmed system image, opening search restarts the home screen. With all of Apple's files it
+  needs libnodictation (below).
 - searchd stops itself without SpotlightServices' ranking models, which select-system.py leaves out
   (userland/src/init.c overlays them if the boot image has /overlay-spotlight).
 - Frame drops in the App Library. The battery icon is wrong. No sound, Wi-Fi or modem here.
@@ -68,6 +67,18 @@ top is cut to 70 / 55 / 40 % and the GPU asked for 345 / 295 / 295 MHz; at therm
 thermal_warm=, thermal_hot=, thermal_crit= change the thresholds. No sensor of the case is read. Checked
 on the phone with thresholds set low (GPU message accepted, processors read back at 691 and 960 MHz); not
 yet seen under real heat.
+
+## Keyboard (libnodictation)
+With no dictation service running, the keyboard was told over and over that dictation's availability had
+changed, and SpringBoard did nothing else for minutes: no touch or button was answered. Found by sampling
+its main thread. userland/src/nodictation.c ignores those two calls; search was then typed in on the phone.
+Build it (see the linker note above for lld), put it in the RAM image as lib/ and redwood/lib/, and name it
+in the kernel's insertion list (kern_exec-inject-default.patch). The kernel's list and the image go
+together: a program named for a library that is not there does not start.
+
+    xnu-clang -arch arm64 -isysroot $THEOS/sdks/iPhoneOS16.5.sdk -O1 -dynamiclib \
+        -install_name /redwood/lib/libnodictation.dylib -framework UIKit -lobjc \
+        userland/src/nodictation.c -o libnodictation.dylib
 
 ## Kernel
 Build with CONFIG_HAKIOS_UFS, CPUFREQ, AVATRN_GOODIX, AVATRN_BUTTONS = y (tools/make-kernel.sh).
