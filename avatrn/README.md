@@ -6,7 +6,8 @@ read-only.
 
 ## Read this first
 Experimental. Use at your own risk, only on your own phone.
-- **Nothing throttles when hot.** CPU and GPU stay at the speed asked for. Do not leave it unattended.
+- **Slows down when hot only if asked** (see Thermals). Without those boot arguments nothing does. Do not
+  leave it unattended.
 - Saving writes to `userdata` (a fixed window of it); flashing the system image replaces `userdata`.
 - You need your own firmware: Apple's IPSW and the phone's GPU firmware. Neither is in this repository.
 
@@ -59,6 +60,14 @@ Needed in the image: userland/src/init.c built (the prebuilt init is older and d
 /sbin/init, /sbin/launchd and the /redwood copies; and a loader built as below.
 No orderly shutdown: what changed in the last seconds before the power button may be lost. Once writing
 has started the kernel reads through the loader too, not by its own driver.
+
+## Thermals
+    thermal=1 thermal_soc=sm7435 thermal_throttle=1 thermal_stop=95
+(kernel with CONFIG_HAKIOS_THERMAL=y). By the hottest of 28 SoC sensors: at 60 / 70 / 80 C the processors'
+top is cut to 70 / 55 / 40 % and the GPU asked for 345 / 295 / 295 MHz; at thermal_stop the run ends.
+thermal_warm=, thermal_hot=, thermal_crit= change the thresholds. No sensor of the case is read. Checked
+on the phone with thresholds set low (GPU message accepted, processors read back at 691 and 960 MHz); not
+yet seen under real heat.
 
 ## Kernel
 Build with CONFIG_HAKIOS_UFS, CPUFREQ, AVATRN_GOODIX, AVATRN_BUTTONS = y (tools/make-kernel.sh).

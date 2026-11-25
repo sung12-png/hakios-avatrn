@@ -35,9 +35,13 @@ def main():
     nodes = mod.nodes_of(open(args[0], "rb").read())
     phandle_reg = {}
     for path, props in nodes.items():
-        if "compatible" in props and b"qcom,tsens26xx" in props["compatible"] and "phandle" in props:
-            reg = cells(props["reg"])             # srot base/size, tm base/size
-            phandle_reg[cells(props["phandle"])[0]] = reg[2] if len(reg) >= 4 else reg[0]
+        if "compatible" in props and "phandle" in props and (
+                b"qcom,tsens26xx" in props["compatible"] or b"qcom,tsens-v2" in props["compatible"]):
+            reg = cells(props["reg"])
+            if b"qcom,tsens-v2" in props["compatible"]:
+                phandle_reg[cells(props["phandle"])[0]] = reg[0]      # readings first, then the control block (parrot)
+            else:
+                phandle_reg[cells(props["phandle"])[0]] = reg[2] if len(reg) >= 4 else reg[0]   # srot, tm
     zones = []
     for path, props in sorted(nodes.items()):
         parts = path.split("/")

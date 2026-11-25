@@ -142,6 +142,62 @@ domain_of(uint32_t phys_id)
 	return domain;
 }
 
+static uint32_t raised_mask;            /* the groups raise_domain() has set */
+
+/* ... and what each is asked for now, in MHz, read back from its registers; 0: not raised, or no such group */
+uint32_t hakios_cpufreq_mhz(uint32_t domain);
+
+uint32_t
+hakios_cpufreq_mhz(uint32_t domain)
+{
+	vm_offset_t base = epss + domain * EPSS_DOMAIN_SIZE;
+	uint32_t row, entry;
+
+	if (domain >= epss_domains || epss == 0 || !(raised_mask & 1u << domain)) {
+		return 0;
+	}
+	row = *(volatile uint32_t *)(base + EPSS_PERF_STATE);
+	if (row >= EPSS_TABLE_ROWS) {
+		return 0;
+	}
+	entry = *(volatile uint32_t *)(base + EPSS_FREQ_TABLE + 4 * row);
+	return ((entry >> 30) ? XO_KHZ * (entry & 0xff) : ALTERNATE_KHZ) / 1000;
+}
+
+/*
+ * For the thermal watcher: no group above this percentage of its top frequency (100: the top again).
+ * Only groups that were raised; the row is the highest of the group's table within it.
+ */
+void hakios_cpufreq_limit(uint32_t percent);
+
+void
+hakios_cpufreq_limit(uint32_t percent)
+{
+	for (uint32_t domain = 0; domain < epss_domains && epss != 0; domain++) {
+		uint32_t khz[EPSS_TABLE_ROWS], rows = 0, row;
+		vm_offset_t base = epss + domain * EPSS_DOMAIN_SIZE;
+
+		if (!(raised_mask & 1u << domain)) {
+			continue;
+		}
+		while (rows < EPSS_TABLE_ROWS) {
+			uint32_t entry = *(volatile uint32_t *)(base + EPSS_FREQ_TABLE + 4 * rows);
+			uint32_t k = (entry >> 30) ? XO_KHZ * (entry & 0xff) : ALTERNATE_KHZ;
+
+			if (rows > 0 && k <= khz[rows - 1]) {
+				break;
+			}
+			khz[rows++] = k;
+		}
+		for (row = rows - 1; row > 0 && (uint64_t)khz[row] * 100 > (uint64_t)khz[rows - 1] * percent; row--) {
+		}
+		if (*(volatile uint32_t *)(base + EPSS_PERF_STATE) != row) {
+			*(volatile uint32_t *)(base + EPSS_PERF_STATE) = row;
+			tell("cpufreq: group %u: %u MHz (row %u) for the temperature\n", domain, khz[row] / 1000, row);
+		}
+	}
+}
+
 static void
 raise_domain(uint32_t domain, uint32_t cores)
 {
@@ -161,6 +217,7 @@ raise_domain(uint32_t domain, uint32_t cores)
 	}
 	was = *(volatile uint32_t *)(base + EPSS_PERF_STATE);
 	*(volatile uint32_t *)(base + EPSS_PERF_STATE) = top;
+	raised_mask |= 1u << domain;
 	delay_for_interval(20, NSEC_PER_MSEC);
 	tell("cpufreq: group %u (%u of our cores): row %u -> %u of the frequency table, %u MHz\n", domain, cores, was, top,
 	    top_khz / 1000);

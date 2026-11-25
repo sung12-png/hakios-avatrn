@@ -75,6 +75,10 @@ void hakios_battery_report(__unused const struct hakios_battery_state *state) {}
 #ifndef HAKIOS_CPUFREQ
 void hakios_cpufreq_init(void) {}
 void hakios_ddr_quiesce(void) {}
+void hakios_cpufreq_limit(uint32_t percent);
+void hakios_cpufreq_limit(__unused uint32_t percent) {}
+uint32_t hakios_cpufreq_mhz(uint32_t domain);
+uint32_t hakios_cpufreq_mhz(__unused uint32_t domain) { return 0; }
 #endif
 
 #ifndef HAKIOS_ADRENO
@@ -82,6 +86,8 @@ void hakios_adreno_init(void) {}
 void hakios_adreno_quiesce(void) {}
 void hakios_adreno_stop(void) {}
 void hakios_adreno_minute(void) {}
+bool HakiosGPUThermal(uint32_t level);
+bool HakiosGPUThermal(__unused uint32_t level) { return false; }
 #endif
 
 #ifndef HAKIOS_WIFI

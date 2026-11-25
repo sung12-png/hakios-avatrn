@@ -337,6 +337,24 @@ HakiosGPUStart(void)
 	gpu->release();
 }
 
+extern "C" bool hakios_adreno_thermal(uint32_t level);
+extern "C" bool HakiosGPUThermal(uint32_t level);
+
+/* For the thermal watcher: a speed for the temperature, between two clients' submissions. */
+bool
+HakiosGPUThermal(uint32_t level)
+{
+	bool done;
+
+	if (gGPULock == NULL) {
+		return false;
+	}
+	IOLockLock(gGPULock);
+	done = hakios_adreno_thermal(level);
+	IOLockUnlock(gGPULock);
+	return done;
+}
+
 /* The run is ending (hakios.adreno.c): nobody is in the middle of anything when the GPU goes. */
 void
 HakiosGPUStop(void)

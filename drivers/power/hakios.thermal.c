@@ -97,7 +97,7 @@ static const struct sensor_info {
 	uint32_t        number;
 	int32_t         slow_mc;
 	int32_t         limit_mc;
-} sensors[] = {
+} sensors_redwood[] = {
 	{ "aoss-0", 0xc263000, 0, 115000, 125000 },
 	{ "cpu-0-0", 0xc263000, 1, 110000, 125000 },
 	{ "cpu-0-1", 0xc263000, 2, 110000, 125000 },
@@ -126,13 +126,49 @@ static const struct sensor_info {
 	{ "mdmss-3", 0xc265000, 10, 95000, 125000 },
 	{ "camera-0", 0xc265000, 11, 100000, 125000 },
 };
-#define NSENSORS        ((unsigned)(sizeof(sensors) / sizeof(sensors[0])))
+/* the Motorola Edge 2024 (SM7435), thermal_soc=sm7435: tools/dt-thermal.py from that phone's tree */
+static const struct sensor_info sensors_sm7435[] = {
+	{ "aoss-0", 0xc263000, 0, 115000, 125000 },
+	{ "cpuss-0", 0xc263000, 1, 115000, 125000 },
+	{ "cpuss-1", 0xc263000, 2, 115000, 125000 },
+	{ "cpu-1-0", 0xc263000, 3, 110000, 125000 },
+	{ "cpu-1-1", 0xc263000, 4, 110000, 125000 },
+	{ "cpu-1-2", 0xc263000, 5, 110000, 125000 },
+	{ "cpu-1-3", 0xc263000, 6, 110000, 125000 },
+	{ "cpu-1-4", 0xc263000, 7, 110000, 125000 },
+	{ "cpu-1-5", 0xc263000, 8, 110000, 125000 },
+	{ "cpu-1-6", 0xc263000, 9, 110000, 125000 },
+	{ "cpu-1-7", 0xc263000, 10, 110000, 125000 },
+	{ "gpuss-0", 0xc263000, 11, 95000, 125000 },
+	{ "gpuss-1", 0xc263000, 12, 95000, 125000 },
+	{ "camera-0", 0xc263000, 13, 115000, 125000 },
+	{ "aoss-1", 0xc265000, 0, 115000, 125000 },
+	{ "cpu-0-0", 0xc265000, 1, 110000, 125000 },
+	{ "cpu-0-1", 0xc265000, 2, 110000, 125000 },
+	{ "cpu-0-2", 0xc265000, 3, 110000, 125000 },
+	{ "cpu-0-3", 0xc265000, 4, 110000, 125000 },
+	{ "nspss-0", 0xc265000, 5, 95000, 125000 },
+	{ "nspss-1", 0xc265000, 6, 95000, 125000 },
+	{ "nspss-2", 0xc265000, 7, 95000, 125000 },
+	{ "video", 0xc265000, 8, 115000, 125000 },
+	{ "ddr", 0xc265000, 9, 90000, 125000 },
+	{ "mdmss-0", 0xc265000, 10, 115000, 125000 },
+	{ "mdmss-1", 0xc265000, 11, 115000, 125000 },
+	{ "mdmss-2", 0xc265000, 12, 115000, 125000 },
+	{ "mdmss-3", 0xc265000, 13, 115000, 125000 },
+};
+#define COUNT(a)        ((unsigned)(sizeof(a) / sizeof((a)[0])))
+#define SENSORS_ROOM    40
+_Static_assert(COUNT(sensors_redwood) <= SENSORS_ROOM && COUNT(sensors_sm7435) <= SENSORS_ROOM, "room for the sensors");
+static const struct sensor_info *sensors = sensors_redwood;
+static unsigned nsensors = COUNT(sensors_redwood);
+#define NSENSORS        nsensors
 #define REFERENCE_TM0   0xc263000u
 #define REFERENCE_TM1   0xc265000u
 
 static vm_offset_t tm_va[2];
 static uint32_t tm_pa[2] = { REFERENCE_TM0, REFERENCE_TM1 };
-static int32_t tenths[NSENSORS];                /* the last good reading; INT32_MIN: none yet */
+static int32_t tenths[SENSORS_ROOM];                /* the last good reading; INT32_MIN: none yet */
 static uint32_t poll_ms = 2000, log_seconds = 60, stop_celsius = 105;
 static uint64_t last_log, reads;
 static int strikes, last_step;
@@ -140,7 +176,7 @@ static bool stopping;
 
 static int thermal_max_mc = -273000;
 static char thermal_hottest[16] = "";
-static char thermal_list[NSENSORS * 16 + 8];
+static char thermal_list[SENSORS_ROOM * 16 + 8];
 static int thermal_reads_value;
 
 SYSCTL_INT(_kern_hakios, OID_AUTO, thermal_max_mc, CTLFLAG_RD | CTLFLAG_LOCKED, &thermal_max_mc, 0,
@@ -149,6 +185,64 @@ SYSCTL_STRING(_kern_hakios, OID_AUTO, thermal_hottest, CTLFLAG_RD | CTLFLAG_LOCK
 SYSCTL_STRING(_kern_hakios, OID_AUTO, thermal_sensors, CTLFLAG_RD | CTLFLAG_LOCKED, thermal_list, 0,
     "every sensor and its temperature in degrees: \"cpu-0-0=41.2 gpuss-0=38.0 ...\"");
 SYSCTL_INT(_kern_hakios, OID_AUTO, thermal_reads, CTLFLAG_RD | CTLFLAG_LOCKED, &thermal_reads_value, 0, "how many times the sensors were read");
+
+/*
+ * boot-arg thermal_throttle=1: slow down before the stop. Three levels, by the hottest sensor of the SoC:
+ * at thermal_warm (60 C), thermal_hot (70) and thermal_crit (80) the processors' top frequency is cut to
+ * 70, 55 and 40 percent and the GPU is asked for a lower speed. Up at once; down one level only after
+ * five looks in a row 5 degrees below the level's own threshold, so that it does not swing. The numbers
+ * are for a phone in a hand, far below the silicon's own (the tree's: 95 C and up), and there is no
+ * sensor of the case's temperature here.
+ */
+extern void hakios_cpufreq_limit(uint32_t percent);
+extern uint32_t hakios_cpufreq_mhz(uint32_t domain);
+extern bool HakiosGPUThermal(uint32_t level);
+
+static uint32_t throttle_on, throttle_at[3] = { 60, 70, 80 };
+static unsigned level, cooler, gpu_level;
+static const uint32_t level_percent[4] = { 100, 70, 55, 40 };
+
+static void
+throttle(int32_t hottest, const char *where)
+{
+	unsigned want = 0, was = level;
+
+	for (unsigned i = 0; i < 3; i++) {
+		if (hottest >= (int32_t)throttle_at[i] * 10) {
+			want = i + 1;
+		}
+	}
+	if (want > level) {
+		level = want;
+		cooler = 0;
+	} else if (level > 0 && hottest < (int32_t)throttle_at[level - 1] * 10 - 50) {
+		if (++cooler >= 5) {
+			level--;
+			cooler = 0;
+		}
+	} else {
+		cooler = 0;
+	}
+	if (level != was) {
+		say("thermal: level %u (was %u): %s reads %d.%d C; processors to %u%% of their top\n", level, was, where,
+		    hottest / 10, hottest % 10, level_percent[level]);
+	}
+	/* (at every look: whoever raised the processors since, or started the GPU, is brought to the level too) */
+	if (level != 0 || was != 0) {
+		hakios_cpufreq_limit(level_percent[level]);
+	}
+	if (level != gpu_level && HakiosGPUThermal(level)) {
+		gpu_level = level;
+	}
+	{
+		static uint32_t looks;
+
+		if (looks++ % 5 == 0) {
+			say("thermal: level %u, %d.%d C; processors at %u and %u MHz\n", level, hottest / 10, hottest % 10,
+			    hakios_cpufreq_mhz(0), hakios_cpufreq_mhz(1));
+		}
+	}
+}
 
 /* For other drivers (a GPU or modem that wants to back off): the hottest temperature, in millidegrees; -273000: not read. */
 int
@@ -217,6 +311,10 @@ look(void)
 	}
 	last_step = step;
 
+	if (throttle_on) {
+		throttle(hottest, sensors[hot].name);
+	}
+
 	if (stop_celsius != 0 && hottest >= (int32_t)stop_celsius * 10) {
 		strikes++;
 	} else {
@@ -254,6 +352,16 @@ thermal_init(void)
 	if (!PE_parse_boot_argn("thermal", &enabled, sizeof(enabled)) || !enabled) {
 		return;
 	}
+	char soc[16] = "";
+
+	if (PE_parse_boot_arg_str("thermal_soc", soc, sizeof(soc)) && strcmp(soc, "sm7435") == 0) {
+		sensors = sensors_sm7435;
+		nsensors = COUNT(sensors_sm7435);
+	}
+	(void)PE_parse_boot_argn("thermal_throttle", &throttle_on, sizeof(throttle_on));
+	(void)PE_parse_boot_argn("thermal_warm", &throttle_at[0], sizeof(throttle_at[0]));
+	(void)PE_parse_boot_argn("thermal_hot", &throttle_at[1], sizeof(throttle_at[1]));
+	(void)PE_parse_boot_argn("thermal_crit", &throttle_at[2], sizeof(throttle_at[2]));
 	for (unsigned i = 0; i < NSENSORS; i++) {
 		tenths[i] = INT32_MIN;
 	}

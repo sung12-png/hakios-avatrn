@@ -2457,6 +2457,7 @@ static struct block gpu = { "gpu", 0x03d00000, 0x40000 };
 #define GMU_CORE_GRANTED        (1u << 31)      /* of gmu2host_intr_info */
 
 static uint32_t core_khz;               /* the 3D core's speed, as asked of the GMU */
+static uint32_t chosen_speed, speed_khz[8];     /* ... its number in the table sent, and the table */
 
 /*
  * What the vendor's driver sends at this point (a6xx_hfi_start; Linux the same with fewer
@@ -2539,6 +2540,10 @@ step_core_power(void)
 		vote[2] = speed;
 	}
 	core_khz = speeds[vote[2]].khz;
+	chosen_speed = vote[2];
+	for (unsigned i = 0; i < perf.gpu_levels && i < 8; i++) {
+		speed_khz[i] = speeds[i].khz;
+	}
 	printf("adreno: %u: the speed wanted: %u MHz\n", step, core_khz / 1000);
 	announce("send the GMU its tables (speeds and supply levels, bus votes), \"start\", and the speed wanted; "
 	    "from here on it casts votes in RPMh by itself");
@@ -3672,6 +3677,29 @@ hakios_gpu_parameter(uint32_t which, uint64_t *value)
 	default:                                /* among them VA_START, VA_SIZE: addresses are ours to give */
 		return false;
 	}
+}
+
+/*
+ * For the thermal watcher (drivers/power/hakios.thermal.c), with the GPU's lock held: level 0 the speed
+ * chosen at the start, 1 at most the table's second, 2 and 3 its first. False: no kept GPU to tell.
+ */
+bool hakios_adreno_thermal(uint32_t level);
+
+bool
+hakios_adreno_thermal(uint32_t level)
+{
+	uint32_t want = level == 0 ? chosen_speed : level == 1 ? MIN(chosen_speed, 2u) : 1u;
+	uint32_t vote[4] = { 0, 1, want, HFI_NO_INDEX };
+
+	if (!gpu_kept || !is_a710 || want == 0 || want >= 8) {
+		return false;
+	}
+	if (!hfi_send("the speed for the temperature", HFI_GX_BW_PERF_VOTE, vote, 4)) {
+		return false;
+	}
+	core_khz = speed_khz[want];
+	printf("adreno: thermal level %u: the 3D core asked for %u MHz\n", level, core_khz / 1000);
+	return true;
 }
 
 /* Addresses for a buffer of so many bytes; 0: none left. */
