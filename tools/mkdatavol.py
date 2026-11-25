@@ -2,7 +2,11 @@
 """The data volume of Darwin for the phone: an empty HFS Plus volume in darwin past the Darwin volume and the cryptexes,
 as an Android sparse image of the whole of darwin that writes that volume and nothing else.
 
-usage: mkdatavol.py OUT.simg [MKFS]      (MKFS: mkfs.hfsplus, default the one in $PATH)
+usage: mkdatavol.py [--userdata] OUT.simg [MKFS]      (MKFS: mkfs.hfsplus, default the one in $PATH)
+
+--userdata: for a phone without darwin (ufs_window=userdata): the volume goes into the kernel's and the
+loader's window of userdata instead, blocks 8388608..12582911, and the image says DONT_CARE for everything
+before it and stops at its end:  fastboot flash userdata OUT.simg
 
     fastboot flash darwin OUT.simg
 
@@ -56,11 +60,16 @@ def used_blocks(img):
 
 
 def main():
+    first_block, end_block, where = DATA_FIRST, DARWIN_BLOCKS, 'darwin'
+    if '--userdata' in sys.argv:
+        sys.argv.remove('--userdata')
+        # the same numbers as drivers/storage/hakios.ufs.c (UFS_USERDATA_*) and xnuloader/loader.c
+        first_block, end_block, where = 8388608, 8388608 + 4194304, 'userdata'
     if len(sys.argv) not in (2, 3):
         sys.exit(__doc__)
     out = sys.argv[1]
     mkfs = sys.argv[2] if len(sys.argv) > 2 else 'mkfs.hfsplus'
-    blocks = DARWIN_BLOCKS - DATA_FIRST
+    blocks = end_block - first_block
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, 'data.hfs')
         with open(path, 'wb') as f:
@@ -71,7 +80,7 @@ def main():
         with open(path, 'rb') as img:
             total, used = used_blocks(img)
             if total != blocks:
-                sys.exit(f'mkdatavol.py: the volume has {total} blocks, darwin has {blocks} for it')
+                sys.exit(f'mkdatavol.py: the volume has {total} blocks, {where} has {blocks} for it')
             runs = []                                   # [kind, first, count], in order
             for b in range(total):
                 kind = RAW if used(b) else DONT_CARE
@@ -79,7 +88,7 @@ def main():
                     runs[-1][2] += 1
                 else:
                     runs.append([kind, b, 1])
-            chunks, written = [chunk(DONT_CARE, DATA_FIRST, 0)], 0
+            chunks, written = [chunk(DONT_CARE, first_block, 0)], 0
             for kind, first, count in runs:
                 if kind == DONT_CARE:
                     chunks.append(chunk(DONT_CARE, count, 0))
@@ -100,11 +109,11 @@ def main():
                     written += end - at
                     at = end
     with open(out, 'wb') as f:
-        f.write(struct.pack('<IHHHHIIII', MAGIC, 1, 0, 28, 12, BS, DARWIN_BLOCKS, len(chunks), 0))
+        f.write(struct.pack('<IHHHHIIII', MAGIC, 1, 0, 28, 12, BS, end_block, len(chunks), 0))
         for c in chunks:
             f.write(c)
-    print(f'{out}: {os.path.getsize(out)} bytes; the volume: {blocks} blocks ({blocks * BS >> 20} MB) from darwin '
-          f'block {DATA_FIRST}, {written} of them written, the rest of darwin left as it is')
+    print(f'{out}: {os.path.getsize(out)} bytes; the volume: {blocks} blocks ({blocks * BS >> 20} MB) from {where} '
+          f'block {first_block}, {written} of them written, the rest of {where} left as it is')
 
 
 if __name__ == '__main__':
