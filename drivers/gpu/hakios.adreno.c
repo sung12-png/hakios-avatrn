@@ -2926,8 +2926,74 @@ step_zap_load(void)
 /*
  * The Adreno 710 (gen7_3_0) before its command processor is started: Motorola's gen7_start() with
  * adreno-gpulist.h's values for this GPU (highest bank bit 15, 32-byte accesses). Left out, as the
- * SC7280 steps leave out their like: clock gating, register protection, performance counting.
+ * SC7280 steps leave out their like: clock gating, performance counting.
  */
+static void
+a710_protect_registers(void)
+{
+	/*
+	 * What a program's commands may not reach: Motorola's gen7_0_0_protected_regs, which its
+	 * adreno-gpulist.h gives gen7_3_0 too (and gen7_protect_init()). Each: which of the
+	 * CP_PROTECT_REG slots, first and last register (word numbers), and whether reading is
+	 * refused as well as writing. The last slot's range goes on to the end.
+	 */
+	static const struct {
+		uint32_t slot, first, last, no_read;
+	} range[] = {
+	{  0, 0x00000, 0x004ff, 0 },
+	{  1, 0x0050b, 0x00563, 0 },
+	{  2, 0x0050e, 0x0050e, 1 },
+	{  3, 0x00510, 0x00510, 1 },
+	{  4, 0x00534, 0x00534, 1 },
+	{  5, 0x005fb, 0x00698, 0 },
+	{  6, 0x00699, 0x00882, 1 },
+	{  7, 0x008a0, 0x008a8, 1 },
+	{  8, 0x008ab, 0x008cf, 1 },
+	{  9, 0x008d0, 0x00a40, 0 },
+	{ 10, 0x00900, 0x0094d, 1 },
+	{ 11, 0x0098d, 0x00a3f, 1 },
+	{ 12, 0x00a41, 0x00bff, 1 },
+	{ 13, 0x00df0, 0x00df1, 1 },
+	{ 14, 0x00e01, 0x00e01, 1 },
+	{ 15, 0x00e07, 0x00e0f, 1 },
+	{ 16, 0x03c00, 0x03cc3, 1 },
+	{ 17, 0x03cc4, 0x05cc3, 0 },
+	{ 18, 0x08630, 0x087ff, 1 },
+	{ 19, 0x08e00, 0x08e00, 1 },
+	{ 20, 0x08e08, 0x08e08, 1 },
+	{ 21, 0x08e50, 0x08e6f, 1 },
+	{ 22, 0x08e80, 0x09100, 1 },
+	{ 23, 0x09624, 0x097ff, 1 },
+	{ 24, 0x09e40, 0x09e40, 1 },
+	{ 25, 0x09e64, 0x09e71, 1 },
+	{ 26, 0x09e78, 0x09fff, 1 },
+	{ 27, 0x0a630, 0x0a7ff, 1 },
+	{ 28, 0x0ae02, 0x0ae02, 1 },
+	{ 29, 0x0ae50, 0x0ae5f, 1 },
+	{ 30, 0x0ae66, 0x0ae69, 1 },
+	{ 31, 0x0ae6f, 0x0ae72, 1 },
+	{ 32, 0x0b604, 0x0b607, 1 },
+	{ 33, 0x0ec00, 0x0fbff, 1 },
+	{ 34, 0x0fc00, 0x11bff, 0 },
+	{ 35, 0x18400, 0x18453, 1 },
+	{ 36, 0x18454, 0x18458, 0 },
+	{ 37, 0x18459, 0x1a458, 1 },
+	{ 38, 0x1a459, 0x1c458, 1 },
+	{ 39, 0x1c459, 0x1e458, 1 },
+	{ 40, 0x1f400, 0x1f843, 1 },
+	{ 41, 0x1f844, 0x1f8bf, 0 },
+	{ 42, 0x1f860, 0x1f860, 1 },
+	{ 43, 0x1f878, 0x1f8a2, 1 },
+	{ 47, 0x1f8c0, 0x1f8c0, 1 },
+	};
+
+	put(&gpu, "cp_protect_cntl", GPU_WORD(0x084f), 1u << 0 | 1u << 1 | 1u << 3);
+	for (unsigned i = 0; i < sizeof(range) / sizeof(range[0]); i++) {
+		put(&gpu, "cp_protect", GPU_WORD(0x0850 + range[i].slot),
+		    range[i].first | (range[i].last - range[i].first) << 18 | range[i].no_read << 31);
+	}
+}
+
 static void
 a710_core_registers(void)
 {
@@ -2957,6 +3023,7 @@ a710_core_registers(void)
 	put(&gpu, "rbbm_secvid_tsb_cntl", RBBM_SECVID_TSB_CNTL, 0);
 	put64(&gpu, "rbbm_secvid_tsb_trusted_base", RBBM_SECVID_TSB_TRUSTED_BASE, 0);
 	put(&gpu, "rbbm_secvid_tsb_trusted_size", RBBM_SECVID_TSB_TRUSTED_SIZE, 0);
+	a710_protect_registers();
 }
 
 static bool
