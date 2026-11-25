@@ -23,7 +23,7 @@
  * read ("tl: c before US seen US read US": the look before, the look that found the line low, the
  * report read), for measuring how long a touch takes to show (tools/latency.py).
  *
- * Status: written for avatrn, not yet run on the phone.
+ * Status: touches work on the phone (the Goodix panel). The FocalTech half has not run there.
  */
 #include <kern/clock.h>
 #include <kern/locks.h>

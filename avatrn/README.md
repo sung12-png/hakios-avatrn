@@ -4,6 +4,20 @@ iOS 16.5 boots to the lock screen and Settings with the root on UFS; touch and b
 Boot is RAM-only (`fastboot boot`). The iOS volume (userland/system.apfs) is in `userdata`, mounted
 read-only.
 
+## Read this first
+Experimental. Use at your own risk, only on your own phone.
+- **Nothing throttles when hot.** CPU and GPU stay at the speed asked for. Do not leave it unattended.
+- Saving writes to `userdata` (a fixed window of it); flashing the system image replaces `userdata`.
+- You need your own firmware: Apple's IPSW and the phone's GPU firmware. Neither is in this repository.
+
+## Known problems (2026-11-25)
+- With a system image holding all of Apple's files, opening search (the keyboard) freezes touch and
+  buttons; the kernel and storage go on. With the trimmed image the home screen restarts instead.
+  Cause not found yet.
+- searchd stops itself without SpotlightServices' ranking models, which select-system.py leaves out
+  (userland/src/init.c overlays them if the boot image has /overlay-spotlight).
+- Frame drops in the App Library. The battery icon is wrong. No sound, Wi-Fi or modem here.
+
 ## Boot arguments of the working image
     sb_delay=8 root_apfs=ufs_userdata ufs=2 ufs_native=1 bootcpu=7 cpus=8 touchscreen=1 touch_avdd=1
     buttons=1 amfi_get_out_of_my_way=1 cs_enforcement_disable=1
