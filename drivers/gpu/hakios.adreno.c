@@ -2472,10 +2472,10 @@ step_core_power(void)
 	static const struct {
 		uint32_t khz, level;
 	} sc7280_speeds[] = { { 0, 0 }, { 315000, 64 }, { 450000, 128 }, { 550000, 192 } },
-	    /* parrot: the three lowest of its qcom,gpu-pwrlevels that every speed bin has; the lowest is asked for */
-	    sm7435_speeds[] = { { 0, 0 }, { 295000, 56 }, { 345000, 64 }, { 500000, 128 } };
+	    /* parrot: from its qcom,gpu-pwrlevels, ones every speed bin has; the lowest is asked for unless adreno_speed= says */
+	    sm7435_speeds[] = { { 0, 0 }, { 295000, 56 }, { 345000, 64 }, { 500000, 128 }, { 600000, 192 } };
 	__typeof__(&sc7280_speeds[0]) speeds = is_a710 ? sm7435_speeds : sc7280_speeds;
-	const unsigned speed_count = 4;
+	const unsigned speed_count = is_a710 ? 5 : 4;
 	static struct hfi_perf_table perf;
 	static struct hfi_bw_table bw;
 	uint32_t core_start[2] = { 0, 0 }, start[1] = { 0 }, vote[4] = { 0, 1, 3, HFI_NO_INDEX }, granted = 0, speed = 0;
