@@ -90,6 +90,17 @@ extern void FlushPoC_DcacheRegion(vm_offset_t va, size_t length);   /* osfmk/arm
 #define UFS_WRITE_FIRST    2042368ULL                  /* darwin's blocks of 4096 */
 #define UFS_DARWIN_MIN     5242875ULL                  /* the first phone's darwin, in blocks of 4096 */
 
+/*
+ * ufs_window=userdata: no darwin; one fixed stretch of that phone's userdata instead (the loader's
+ * BLOCK_USERDATA_*, xnuloader/loader.c: the same numbers, checked there again). ufs_window_dry=1: say it
+ * and offer nothing.
+ */
+#define UFS_USERDATA_START_LBA 0x225100ULL
+#define UFS_USERDATA_FIRST     8388608ULL                  /* 32 GiB in */
+#define UFS_USERDATA_END       (8388608ULL + 4194304ULL)   /* 16 GiB long */
+static uint64_t ufs_write_first = UFS_WRITE_FIRST;
+static uint64_t ufs_write_end;                             /* block after the last writable; 0: the partition's end */
+
 struct loader_block_part {
 	char name[36];
 	uint32_t block_size;
@@ -612,8 +623,9 @@ ufs_write(uint32_t op, uint32_t part, uint64_t offset, const uint8_t *src, uint6
 	if (len == 0 || offset % nbs != 0 || len % nbs != 0) {
 		return EINVAL;          /* whole blocks only: nothing is read before a write */
 	}
-	if (offset / nbs < UFS_WRITE_FIRST || offset > ufs_part_bytes(part) ||
-	    len > ufs_part_bytes(part) - offset) {
+	if (offset / nbs < ufs_write_first || offset > ufs_part_bytes(part) ||
+	    len > ufs_part_bytes(part) - offset ||
+	    (ufs_write_end != 0 && (offset / nbs >= ufs_write_end || len / nbs > ufs_write_end - offset / nbs))) {
 		/* the Darwin volume, the cryptexes, and anything past the partition's end: never */
 		ufs_write_refused++;
 		return EROFS;
@@ -688,7 +700,8 @@ ufs_is_data(dev_t dev)
 static uint64_t
 ufs_data_bytes(void)
 {
-	return ufs_part_bytes((uint32_t)ufs_write_part) - UFS_WRITE_FIRST * 4096;
+	return ufs_write_end != 0 ? (ufs_write_end - ufs_write_first) * 4096 :
+	    ufs_part_bytes((uint32_t)ufs_write_part) - ufs_write_first * 4096;
 }
 
 /*
@@ -713,7 +726,7 @@ ufs_data_flush(void)
 	lck_mtx_lock(&ufs_write_mtx);
 	lck_mtx_lock(&ufs_lock);
 	/* one block in bounds, for the loader's checks; nothing of it is touched */
-	error = ufshc_list_in() ? EIO : ufs_request(BLOCK_OP_FLUSH, (uint32_t)ufs_write_part, UFS_WRITE_FIRST, 1, NULL, NULL);
+	error = ufshc_list_in() ? EIO : ufs_request(BLOCK_OP_FLUSH, (uint32_t)ufs_write_part, ufs_write_first, 1, NULL, NULL);
 	lck_mtx_unlock(&ufs_lock);
 	lck_mtx_unlock(&ufs_write_mtx);
 	return error;
@@ -727,7 +740,7 @@ ufs_data_flush(void)
 static int
 ufs_data_io(bool write, uint64_t offset, uint8_t *p, uint64_t len)
 {
-	uint64_t base = UFS_WRITE_FIRST * 4096, size = ufs_data_bytes();
+	uint64_t base = ufs_write_first * 4096, size = ufs_data_bytes();
 	uint8_t *bounce;
 	int error = 0;
 
@@ -1765,29 +1778,51 @@ hakios_ufs_init(void)
 	 * it; the loader looks at its GUIDs besides, and refuses the same bounds of its own accord.
 	 */
 	check = 0;
-	if (PE_parse_boot_argn("ufs_write", &check, sizeof(check)) && check == 1) {
+	char window[16] = "";
+	uint32_t dry = 0;
+	bool in_userdata = PE_parse_boot_arg_str("ufs_window", window, sizeof(window)) && strcmp(window, "userdata") == 0;
+	const char *wanted = in_userdata ? "userdata" : "darwin";
+
+	if (in_userdata) {
+		ufs_write_first = UFS_USERDATA_FIRST;
+		ufs_write_end = UFS_USERDATA_END;
+		PE_parse_boot_argn("ufs_window_dry", &dry, sizeof(dry));
+		for (uint32_t i = 0; i < ufs_parts; i++) {
+			if (strncmp((const char *)ufs_page->part[i].name, "userdata", 9) == 0) {
+				printf("ufs: userdata window: LBA %#llx, %llu blocks, unit %u; writable would be blocks %llu to %llu "
+				    "(%llu MB from %llu MB in)%s\n", (uint64_t)ufs_page->part[i].start_lba,
+				    (uint64_t)ufs_page->part[i].blocks, (uint32_t)ufs_page->part[i].unit, UFS_USERDATA_FIRST,
+				    UFS_USERDATA_END - 1, (UFS_USERDATA_END - UFS_USERDATA_FIRST) * 4096 >> 20,
+				    UFS_USERDATA_FIRST * 4096 >> 20, dry ? "; DRY RUN: nothing takes writes" : "");
+			}
+		}
+	}
+	if (!dry && PE_parse_boot_argn("ufs_write", &check, sizeof(check)) && check == 1) {
 		uint32_t offered = ufs_page->write_part_plus_one;
 
-		if (offered == 0 || offered > ufs_parts || ufs_page->write_first != UFS_WRITE_FIRST) {
+		if (offered == 0 || offered > ufs_parts || ufs_page->write_first != ufs_write_first) {
 			printf("ufs: the loader offers no partition to write into (ufs_write=1 on its command "
 			    "line too, and a loader that knows about writes)\n");
 		}
 		for (uint32_t i = 0; offered != 0 && i < ufs_parts; i++) {
 			const char *why = NULL;
 
-			if (strncmp((const char *)ufs_page->part[i].name, "darwin", 7) != 0) {
+			if (strncmp((const char *)ufs_page->part[i].name, wanted, 9) != 0) {
 				continue;
 			}
 			if (i != offered - 1) {
 				why = "the loader offers another partition";
 			} else if (ufs_page->part[i].flags & BLOCK_PART_UNIT) {
 				why = "it is a whole logical unit, not the partition";
-			} else if (ufs_page->part[i].unit != 0) {
+			} else if (!in_userdata && ufs_page->part[i].unit != 0) {
 				/* the first unit UEFI lists, which this kernel's own driver reads as LUN 0 and
 				 * has compared with the loader's reads; the device path this firmware gives
 				 * says no logical unit number at all, so part[].lun is 0xff for every unit */
 				why = "it is not on the first logical unit";
-			} else if (ufs_page->part[i].blocks < UFS_DARWIN_MIN) {
+			} else if (in_userdata && ((uint64_t)ufs_page->part[i].start_lba != UFS_USERDATA_START_LBA ||
+			    ufs_page->part[i].blocks < UFS_USERDATA_END)) {
+				why = "it is not where, or not as large as, this phone's userdata is";
+			} else if (!in_userdata && ufs_page->part[i].blocks < UFS_DARWIN_MIN) {
 				why = "it is smaller than the layout's 20 GiB";
 			} else if (ufs_page->part[i].block_size != 4096) {
 				why = "its blocks are not 4096 bytes";
@@ -1800,8 +1835,7 @@ hakios_ufs_init(void)
 		}
 		if (ufs_write_part >= 0) {
 			printf("ufs: /dev/rufs_darwin takes writes, whole blocks from %llu on (%llu MB of it); "
-			    "everything else of the storage is read only\n", UFS_WRITE_FIRST,
-			    (ufs_page->part[ufs_write_part].blocks - UFS_WRITE_FIRST) * 4096 >> 20);
+			    "everything else of the storage is read only\n", ufs_write_first, ufs_data_bytes() >> 20);
 			if (devfs_make_node(makedev(ufs_bmajor, UFS_DATA_MINOR), DEVFS_BLOCK, UID_ROOT, GID_OPERATOR, 0640,
 			    "ufs_darwin_data") != NULL) {
 				printf("ufs: /dev/ufs_darwin_data: the same %llu MB as a block device, for the data volume; "

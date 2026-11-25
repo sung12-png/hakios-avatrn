@@ -41,6 +41,13 @@ Build with CONFIG_HAKIOS_UFS, CPUFREQ, AVATRN_GOODIX, AVATRN_BUTTONS = y (tools/
        cp -a userland/root X; (cd X/redwood; for d in bin etc lib share sbin; do rm -f $d; cp -a ../$d $d; done)
        (cd userland; python3 ../tools/apfs/mkapfs.py -z --plain fw -o rd.apfs redwood=X)
 
+## Loader
+Build it with this phone's payload address, or it stops right after the firmware's "StartImage...":
+
+    cd xnuloader && PAYLOAD_BASE=0xF4000000ULL ./build.sh
+
+(the script's default, 0xF0000000, is another phone's; Mu-Silicium's avatrn memory map has "XNU Payload" at 0xF4000000)
+
 ## repack.py
 Replaces cmdline (and optionally kernel and ramdisk) in a self-contained boot image:
     python3 -I avatrn/repack.py BASE.img OUT.img "CMDLINE" [KERNEL] [RAMDISK]

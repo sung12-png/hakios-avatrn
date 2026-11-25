@@ -4,6 +4,7 @@ import gzip, struct, subprocess, sys, zlib, tempfile, os
 src, out, cmdline = sys.argv[1:4]
 newkernel = sys.argv[4] if len(sys.argv) > 4 else None
 newrd = sys.argv[5] if len(sys.argv) > 5 else None
+newloader = sys.argv[6] if len(sys.argv) > 6 else None
 d = open(src, 'rb').read()
 assert d[:8] == b'ANDROID!'
 ksize, rsize = struct.unpack_from('<II', d, 8)
@@ -18,10 +19,15 @@ while True:
     if body[i + 8:i + 14] == b'loader': break
     i += 4
 p, end, entries, found = i + 8, i + 8 + size, b'', 0
+swapped = False
 while p + 24 <= end:
     name, sz, res = struct.unpack_from('<16sII', body, p)
     if not name.rstrip(b'\0'): break
     data = body[p + 24:p + 24 + sz]
+    if newloader and name.rstrip(b'\0') == b'loader.efi':
+        data = open(newloader, 'rb').read()
+        assert data[:2] == b'MZ', 'not an EFI program'
+        swapped = True
     if name.rstrip(b'\0') == b'cmdline':
         data = cmdline.encode() + b'\0'; found += 1
     if newkernel and name.rstrip(b'\0') == b'kernel':
@@ -33,6 +39,7 @@ while p + 24 <= end:
     entries += struct.pack('<16sII', name, len(data), res) + data + b'\0' * (-len(data) % 16)
     p += 24 + sz + (-sz % 16)
 assert found == 1 and len(cmdline) < 600
+assert swapped or not newloader, 'no loader.efi entry replaced'
 rest = body[p:end]               # end marker and padding
 assert not rest.strip(b'\0') and not body[end:].strip(b'\0'), 'unexpected data after payload'
 body_end = body[end:]

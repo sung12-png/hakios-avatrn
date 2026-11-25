@@ -1619,6 +1619,18 @@ ufs_survey(void)
 #define BLOCK_DARWIN_TYPE  { 0x7c3457ef, 0x0000, 0x11aa, { 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec, 0xac } }
 
 /*
+ * ufs_window=userdata, for a phone with no darwin (the Motorola Edge 2024, "avatrn"): instead, one
+ * fixed stretch inside userdata, where nothing but the system image at its very start (2.3 GB) is:
+ * blocks of 4096 from 32 GiB, 16 GiB long -- the first block and the block after the last, both
+ * enforced here and in the kernel (drivers/storage/hakios.ufs.c, with the same numbers). The partition
+ * has to be that phone's userdata: its name, where it begins on its unit, 4096-byte blocks.
+ * ufs_window_dry=1: say what would be allowed, and allow nothing.
+ */
+#define BLOCK_USERDATA_START_LBA 0x225100ULL
+#define BLOCK_USERDATA_FIRST     8388608ULL
+#define BLOCK_USERDATA_END       (8388608ULL + 4194304ULL)
+
+/*
  * The partitions first, then the logical units they are on (BLOCK_PART_UNIT, named unit0, unit1,
  * ... in the order UEFI lists them). Each partition says which of those it is on and where it
  * begins there, so that a reader of the units themselves -- the kernel's own UFS driver -- finds
@@ -1701,6 +1713,10 @@ static int block_probe_requested;       /* ufs_probe=1: block_io2_probe() at blo
 static efi_block_io *block_bios[BLOCK_MAX_PARTS];
 static int block_enabled;
 static int block_write_requested;       /* ufs_write=1 on the command line */
+static int block_window_userdata;       /* ufs_window=userdata */
+static int block_window_dry;            /* ufs_window_dry=1: nothing is ever written */
+static uint64_t block_write_first = BLOCK_WRITE_FIRST;
+static uint64_t block_write_end;        /* the block after the last one a write may reach; 0: the partition's end */
 static int block_write_part = -1;       /* the only partition a write may reach; -1: none, writes refused */
 static uint64_t block_writes, block_writes_refused, block_write_bytes;
 
@@ -1988,6 +2004,42 @@ block_is_darwin(const efi_partition_info *info, const efi_block_io *bio, const s
 	return 1;
 }
 
+/* ufs_window=userdata: is this userdata, as it has to be? Then say what of it a write may reach. */
+static int
+block_is_userdata_window(const efi_partition_info *info, const efi_block_io *bio, const struct loader_block_part *bp)
+{
+	static const char name[] = "userdata";
+	const char *why = NULL;
+
+	for (unsigned i = 0; i < sizeof(name); i++) {
+		if (bp->name[i] != name[i]) {
+			return 0;
+		}
+	}
+	if (info->start_lba != BLOCK_USERDATA_START_LBA) {
+		why = "it does not begin where this phone's userdata does";
+	} else if (bp->block_size != 4096 || info->end_lba - info->start_lba + 1 != bp->blocks) {
+		why = "its blocks are not 4096 bytes, or its size does not agree with itself";
+	} else if (bp->blocks < BLOCK_USERDATA_END) {
+		why = "the window does not fit in it";
+	} else if (bp->unit == 0xffff) {
+		why = "its logical unit is not known";
+	} else if (bio->media->read_only) {
+		why = "UEFI gives it out read only";
+	}
+	if (why != NULL) {
+		print("ufs: userdata window: no write will be served: %s\n", why);
+		return 0;
+	}
+	print("ufs: userdata window: LBA %d, %d blocks, unit %d; writable: blocks %d to %d only\n", info->start_lba,
+	    bp->blocks, (uint64_t)bp->unit, BLOCK_USERDATA_FIRST, BLOCK_USERDATA_END - 1);
+	if (block_window_dry) {
+		print("ufs: userdata window: DRY RUN: no write is served\n");
+		return 0;
+	}
+	return 1;
+}
+
 /* forward-declared for the UFS diag; defined further down */
 extern uint64_t win_base, win_size;
 
@@ -2063,7 +2115,9 @@ block_start(void)
 				}
 			}
 		}
-		if (block_write_requested && block_is_darwin(info, bio, bp)) {
+		/* (a dry run looks without ufs_write=1: block_is_userdata_window() then allows nothing) */
+		if ((block_write_requested || (block_window_userdata && block_window_dry)) &&
+		    (block_window_userdata ? block_is_userdata_window(info, bio, bp) : block_is_darwin(info, bio, bp))) {
 			block_write_part = (int)block_shared.parts;
 		}
 		block_bios[block_shared.parts++] = bio;
@@ -2154,7 +2208,7 @@ block_start(void)
 	block_writes = block_writes_refused = block_write_bytes = 0;
 	if (block_write_part >= 0) {
 		block_shared.write_part_plus_one = (uint32_t)block_write_part + 1;
-		block_shared.write_first = BLOCK_WRITE_FIRST;
+		block_shared.write_first = block_write_first;
 		block_shared.write_caps = BLOCK_CAN_FAST;
 	}
 	block_shared.magic = BLOCK_MAGIC;
@@ -2282,7 +2336,8 @@ block_poll(void)
 			s = 0x800000000000000FULL;      /* EFI_ACCESS_DENIED */
 			bytes = 0;
 		} else if (op == BLOCK_OP_WRITE || op == BLOCK_OP_WRITE_FAST || op == BLOCK_OP_FLUSH) {
-			if (block_write_part < 0 || part != (uint32_t)block_write_part || lba < BLOCK_WRITE_FIRST) {
+			if (block_write_part < 0 || part != (uint32_t)block_write_part || lba < block_write_first ||
+			    (block_write_end != 0 && (lba >= block_write_end || count > block_write_end - lba))) {
 				/* not darwin, or not past what the build writes from the computer: never */
 				if (block_writes_refused++ < 8) {
 					print("ufs: a write of %d blocks from %d of %s: REFUSED\n", count, lba,
@@ -3182,6 +3237,12 @@ run_kernel(int have_checkpoint, uint64_t checkpoint)
 		block_probe_requested |= starts_with(c, "ufs_probe=1") && (c == pi.cmdline || c[-1] == ' ');
 		block_write_requested |= starts_with(c, "ufs_write=1") && (c == pi.cmdline || c[-1] == ' ') &&
 		    (c[11] == 0 || c[11] == ' ');
+		if (starts_with(c, "ufs_window=userdata") && (c == pi.cmdline || c[-1] == ' ') && (c[19] == 0 || c[19] == ' ')) {
+			block_window_userdata = 1;
+			block_write_first = BLOCK_USERDATA_FIRST;
+			block_write_end = BLOCK_USERDATA_END;
+		}
+		block_window_dry |= starts_with(c, "ufs_window_dry=1") && (c == pi.cmdline || c[-1] == ' ');
 		hc_requested |= starts_with(c, "ufs_native=") && (c == pi.cmdline || c[-1] == ' ') && c[11] >= '1' &&
 		    c[11] <= '9';
 	}
