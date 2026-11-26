@@ -39,7 +39,8 @@ every framebuffer-reading draw waits for the GPU to be idle. Verified on the pho
 included. What the test builds said: the wait alone cures it; a CCU flush and UCHE invalidate without
 it do not; neither do sysmem, noubwc, nolrz or inorder; glfetch=0 cures the icons but makes the
 power-off slider's text flash. A new Mesa goes into the RAM image's lib/ and redwood/lib/.
-adreno_speed 1, 2, 3 = 295, 345, 500 MHz (4 = 600, not verified); see Thermals. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
+adreno_speed 1, 2, 3, 4 = 295, 345, 500, 600 MHz. 4 is what is used now: reported faster, without
+artifacts (a short test; not watched under long load). See Thermals. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
 
 The RAM image needs, besides the above:
 - fw/ (stored plain): a710_sqe.fw, a710_zap.mdt, .b00 to .b02, gmu_gen70000.bin from the phone's own
