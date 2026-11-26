@@ -122,7 +122,7 @@ void hakios_virtio_sound_init(void) {}
 void hakios_speaker_init(void) {}
 #endif
 
-#ifndef HAKIOS_SOUND
+#if !defined(HAKIOS_SOUND) && !defined(HAKIOS_AVATRN_SOUND)
 void hakios_sound_dsp_up(void) {}
 void hakios_sound_dsp_down(void) {}
 void hakios_sound_quiesce(void) {}

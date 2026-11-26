@@ -106,6 +106,7 @@ fbscale	k
 fbtrace	k
 fbwidth	k
 gamut	l
+garnet_speaker	k
 gl	u
 glblit	u
 glcensus	u

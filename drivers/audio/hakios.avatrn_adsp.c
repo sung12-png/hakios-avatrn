@@ -4072,7 +4072,7 @@ hakios_adsp_speaker_write(uint64_t dsp_address, uint32_t handle, uint32_t bytes,
 #define DATA_RSP_WR_EP_BUFFER_DONE      0x05001004u
 #define DATA_RSP_WR_EP_BUFFER_DONE_OLD  0x05001000u
 #define TONE_PERIODS                    8
-#define TONE_FRAMES                     960             /* 10 ms */
+#define TONE_FRAMES                     480             /* avatrn: 10 ms at 48 kHz */
 #define TONE_BYTES                      (TONE_FRAMES * 4)
 #define TONE_TOKEN                      0x01000000u     /* (the questions' own tokens stay under it) */
 
@@ -4111,7 +4111,7 @@ tone_fill(unsigned period, bool silent)
 	int16_t *samples = (int16_t *)(tone_memory + 4096 * period);
 
 	for (unsigned frame = 0; frame < TONE_FRAMES; frame++, tone_at++) {
-		int16_t sample = silent ? 0 : (int16_t)((tone_cycle[tone_at / 2 % 48] + tone_cycle[(tone_at + 1) / 2 % 48]) / 2);
+		int16_t sample = silent ? 0 : tone_cycle[tone_at % 48];       /* avatrn: 48 kHz, the table as it is */
 
 		samples[2 * frame] = sample;
 		samples[2 * frame + 1] = sample;

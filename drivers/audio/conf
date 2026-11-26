@@ -21,6 +21,13 @@ driver AVATRN_SPEAKER
 	default n
 	help    the Motorola Edge 2024's two speaker amplifiers on I2C (speaker_probe=2: asked who they are). Not with SPEAKER
 
+driver AVATRN_SOUND
+	file    bsd/dev/hakios.avatrn_sound.c
+	file    bsd/dev/hakios.avatrn_guard.c
+	requires AVATRN_ADSP AVATRN_SPEAKER
+	default n
+	help    the Motorola Edge 2024's sound (ios-garnet's driver): the memory the DSP sees, so far. Not with SOUND
+
 driver SPEAKER
 	file    bsd/dev/hakios.speaker.c
 	help    the two speaker amplifiers on I2C, and their watch of temperature and battery
