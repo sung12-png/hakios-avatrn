@@ -11,12 +11,12 @@ Experimental. Use at your own risk, only on your own phone.
 - Saving writes to `userdata` (a fixed window of it); flashing the system image replaces `userdata`.
 - You need your own firmware: Apple's IPSW and the phone's GPU firmware. Neither is in this repository.
 
-## Known problems (2026-11-25)
+## Known problems (2026-11-26)
 - With the trimmed system image, opening search restarts the home screen. With all of Apple's files it
   needs libnodictation (below).
 - searchd stops itself without SpotlightServices' ranking models, which select-system.py leaves out
   (userland/src/init.c overlays them if the boot image has /overlay-spotlight).
-- Frame drops in the App Library. The battery icon is wrong. No sound, Wi-Fi or modem here.
+- Frame drops in the App Library; typing and the system at large are on the slow side. The battery icon is wrong. No sound, Wi-Fi or modem here.
 
 ## Boot arguments of the working image
     sb_delay=8 root_apfs=ufs_userdata ufs=2 ufs_native=1 bootcpu=7 cpus=8 touchscreen=1 touch_avdd=1
@@ -28,11 +28,15 @@ The window server draws by the GPU through Mesa; reported a lot smoother, with s
 (500 MHz, CPUs at top speed). Added to the boot arguments above:
 
     adreno=21 adreno_keep=1 adreno_pause=10 gpu_soc=sm7435 adreno_speed=3
-    cpufreq=1 soc_epss=0x17d91000 epss_cores=4 soc_rsc=0x17a20000
+    cpufreq=1 soc_epss=0x17d91000 epss_cores=4 soc_rsc=0x17a20000 glfetch=0
 
 (no gpu_delay: the GPU has to be there before the first program; gl=0: software drawing again).
-adreno_speed 1, 2, 3 = 295, 345, 500 MHz. Nothing throttles the GPU when hot: watch the log's
-temperature line. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
+glfetch=0 keeps EXT_shader_framebuffer_fetch from CoreAnimation: with it, icons and widgets showed
+small pieces missing or added (Podcasts, Reminders, the Notes widget). Without it they were clean, at
+a similar speed. FD_MESA_DEBUG=flush also cured them, slowly; sysmem, noubwc, nolrz, inorder did not.
+The flush before the first framebuffer-reading draw (freedreno-darwin.patch) is evidently not enough
+on this GPU; that is not fixed, only avoided.
+adreno_speed 1, 2, 3 = 295, 345, 500 MHz (4 = 600, not verified); see Thermals. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
 
 The RAM image needs, besides the above:
 - fw/ (stored plain): a710_sqe.fw, a710_zap.mdt, .b00 to .b02, gmu_gen70000.bin from the phone's own
