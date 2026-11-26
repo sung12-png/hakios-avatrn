@@ -476,8 +476,14 @@ hakios_wlfw_exchange(uint32_t step)
 	 * the board's data. ath11k would look in "board-2.bin" for an entry named after the ids above
 	 * and fall back to "board.bin"; here it is the file this phone's Android sends.
 	 */
-	send_file("the regulatory database", "regdb_xiaomi.bin", ATH11K_QMI_BDF_TYPE_REGDB, board_id);
-	board = send_file("the board's data", "bd_m20gl.elf", ATH11K_QMI_BDF_TYPE_ELF, board_id);
+	{
+		uint32_t avatrn = 0;    /* boot-arg wifi_avatrn=1: the Motorola's own files, as its modem partition names them */
+
+		PE_parse_boot_argn("wifi_avatrn", &avatrn, sizeof(avatrn));
+		send_file("the regulatory database", avatrn ? "regdb.bin" : "regdb_xiaomi.bin", ATH11K_QMI_BDF_TYPE_REGDB, board_id);
+		board = send_file("the board's data", avatrn ? "bdwlan.elf.avatrn.epa" : "bd_m20gl.elf", ATH11K_QMI_BDF_TYPE_ELF,
+		    board_id);
+	}
 	if (!board) {
 		goto out;
 	}
