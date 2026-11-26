@@ -54,6 +54,7 @@ applog_name	k
 autounlock	u
 battery	kl
 battery_by_voltage	k
+battery_no_charger	k
 battery_shared_pa	k
 battery_stop	k
 battery_stop_poll	k
@@ -217,6 +218,7 @@ regtrace	k
 return_cpu	k
 return_panic	k
 root_apfs	u
+rtc_offset	k
 sb_delay	u
 serial	l
 small_cores	k

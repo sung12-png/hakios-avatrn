@@ -47,6 +47,7 @@
  * knows; the Bluetooth driver found version 5 elsewhere on this SoC, but avatrn's is unproven.
  */
 #include <kern/clock.h>
+#include <sys/sysctl.h>
 #include <kern/locks.h>
 #include <kern/thread.h>
 #include <libkern/libkern.h>
@@ -146,6 +147,18 @@ struct peripheral {
 };
 static struct peripheral pon = { .name = "the PMK8350's power-on block", .id = 0x013 };          /* registers 0x1300 of slave 0 */
 static struct peripheral pin = { .name = "GPIO1 of the PM6450", .id = 0x188 };                   /* registers 0x8800 of slave 1 */
+
+/*
+ * The date. The PMK8350's clock block (registers 0x6100 of slave 0) is a counter of seconds that goes on while
+ * the phone is off, but not a date: Android keeps the difference itself. Boot-arg rtc_offset=N is that
+ * difference (the computer's date minus /sys/class/rtc/rtc0/since_epoch, read in the recovery system), and the
+ * calendar is set to counter + N. An epoch= on the command line (the computer's date, avatrn/boot-now.py) wins.
+ * The counter is only read.
+ */
+static struct peripheral rtc = { .name = "the PMK8350's clock", .id = 0x061 };
+#define RTC_TYPE                0x07
+#define RTC_SUBTYPE             0x01
+#define RTC_REG_SECONDS         0x48            /* four bytes, the lowest first (Linux rtc-pm8xxx.c) */
 
 /* How the reads have gone: said once a minute. */
 static struct {
@@ -375,6 +388,46 @@ identify(const struct peripheral *p, uint8_t type, uint8_t subtype_from, uint8_t
 	return true;
 }
 
+/* what rtc_offset= would have to be, as measured against epoch= in this run (0: no epoch= was given) */
+static uint64_t rtc_offset_measured;
+SYSCTL_DECL(_kern_hakios);
+SYSCTL_QUAD(_kern_hakios, OID_AUTO, rtc_offset_measured, CTLFLAG_RD | CTLFLAG_LOCKED, &rtc_offset_measured,
+    "the date minus the PMIC clock's counter, when the date came with epoch=");
+
+static void
+clock_from_pmic(uint32_t channels)
+{
+	uint64_t offset = 0, epoch = 0;
+	clock_sec_t now;
+	clock_usec_t usec;
+	const char *problem;
+	uint8_t b[4];
+	uint32_t counter;
+
+	find_channel(&rtc, channels);
+	if (!identify(&rtc, RTC_TYPE, RTC_SUBTYPE, RTC_SUBTYPE)) {
+		return;
+	}
+	problem = spmi_read(&rtc, RTC_REG_SECONDS, b, 4);
+	if (problem != NULL) {
+		printf("buttons: %s: %s\n", rtc.name, problem);
+		return;
+	}
+	counter = (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
+	clock_get_calendar_microtime(&now, &usec);
+	if (PE_parse_boot_argn("epoch", &epoch, sizeof(epoch)) && epoch != 0) {
+		rtc_offset_measured = (uint64_t)now - counter;
+		printf("buttons: the clock counts %u; with epoch= given, rtc_offset=%llu would say the same date\n", counter,
+		    (uint64_t)now - counter);
+	} else if (PE_parse_boot_argn("rtc_offset", &offset, sizeof(offset)) && offset != 0) {
+		clock_set_calendar_microtime((clock_sec_t)(offset + counter), 0);
+		printf("buttons: the date set from the clock: %u + %llu = %llu seconds since 1970\n", counter, offset,
+		    offset + counter);
+	} else {
+		printf("buttons: the clock counts %u (no rtc_offset=: the date is left alone)\n", counter);
+	}
+}
+
 /* Step 4 for the power-on block: nothing to check but what it says now; its interrupt setup goes to the log. */
 static void
 pon_inputs(void)
@@ -479,6 +532,7 @@ buttons_thread(void *parameter, __unused wait_result_t result)
 	}
 
 	printf("buttons: step 3: the first transfers on the SPMI bus\n");
+	clock_from_pmic(channels);
 	pon_known = identify(&pon, PON_TYPE, PON_SUBTYPE_HLOS, PON_SUBTYPE_HLOS);
 	pin_known = identify(&pin, GPIO_TYPE, GPIO_SUBTYPE_LV, GPIO_SUBTYPE_MV_VIN3);
 	if (steps < 4) {

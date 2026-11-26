@@ -2,7 +2,7 @@
 
 Made by `tools/boot-args.py --markdown`; CI fails if it is out of date with the source (`tools/boot-args.py --check`).
 
-Every argument that the kernel, the loader or user space of this port reads, and which file reads it. **340 arguments**: 290 read by the kernel, 16 by the loader, 46 by user space (one is read in more than one place).
+Every argument that the kernel, the loader or user space of this port reads, and which file reads it. **342 arguments**: 292 read by the kernel, 16 by the loader, 46 by user space (one is read in more than one place).
 
 This is a catalogue of what exists and who reads it, not a manual. What an argument means is in the head of the file that reads it. The stable switches have a symbol in the configuration (`tools/hakios-config.py help SYMBOL`, `docs/configs.md`); the rest are the knobs of bring-up (a driver's steps, pauses, traces, test modes) and can change with the driver. Any of them can be given in a configuration with `CONFIG_BOOTARGS="name=value ..."`, which checks that each name is in this list.
 
@@ -184,7 +184,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `soc_pas_mpss` | K | `hakios.mpss.c` | `CONFIG_SOC_PAS_MPSS` |  |
 | `soc_smem` | K | `hakios.mpss.c`, `hakios.socinfo.c` | `CONFIG_SOC_SMEM` |  |
 
-## Audio and battery (34)
+## Audio and battery (35)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -200,6 +200,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `adsp_wait` | K | `hakios.adsp.c` | `CONFIG_ADSP_WAIT` |  |
 | `battery` | KL | `hakios.adsp.c`, `hakios.battery.c`, `loader.c` | `CONFIG_BATTERY` |  |
 | `battery_by_voltage` | K | `hakios.battery.c` | `CONFIG_BATTERY_BY_VOLTAGE` |  |
+| `battery_no_charger` | K | `hakios.battery.c` | `CONFIG_BATTERY_NO_CHARGER` |  |
 | `battery_shared_pa` | K | `hakios.battery.c` |  | the loader (the address of its charger page) |
 | `battery_stop` | K | `hakios.battguard.c` | `CONFIG_BATTERY_STOP` |  |
 | `battery_stop_poll` | K | `hakios.battguard.c` | `CONFIG_BATTERY_STOP_POLL` |  |
@@ -360,7 +361,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `ddr` | K | `hakios.cpufreq.c` | `CONFIG_DDR` |  |
 | `ddr_rest` | K | `hakios.cpufreq.c` | `CONFIG_DDR_REST` |  |
 | `ddr_vote` | K | `hakios.cpufreq.c` | `CONFIG_DDR_VOTE` |  |
-| `epoch` | K | `GenericARMPE.cpp` |  | xl (the host's clock) |
+| `epoch` | K | `GenericARMPE.cpp`, `hakios.avatrn_buttons.c` |  | xl (the host's clock) |
 | `epss_cores` | K | `hakios.cpufreq.c` | `CONFIG_EPSS_CORES` |  |
 | `hv_wdt_pet` | K | `loader_return.c` |  | the loader, when it has armed the watchdog (the runner also passes it) |
 | `loader_return_after` | KL | `loader.c`, `loader_return.c` |  | xl (XL_SECS) |
@@ -401,7 +402,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `ufs` | L | `loader.c` | `CONFIG_UFS` |  |
 | `ufs_probe` | L | `loader.c` | `CONFIG_UFS_PROBE` |  |
 
-## User space (22)
+## User space (23)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -417,6 +418,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `glsb3` | U | `inject.c` | `CONFIG_GLSB3` |  |
 | `glyes` | U | `inject.c` | `CONFIG_GLYES` |  |
 | `root_apfs` | U | `init.c` | `CONFIG_ROOT_APFS` |  |
+| `rtc_offset` | K | `hakios.avatrn_buttons.c` | `CONFIG_RTC_OFFSET` |  |
 | `sb_delay` | U | `inject_sb.c` |  | xl (XL_SB_DELAY) |
 | `switcher_wallpaper` | U | `inject_sb.c` | `CONFIG_SWITCHER_WALLPAPER` |  |
 | `touch_avdd` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_AVDD` |  |

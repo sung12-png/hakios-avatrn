@@ -28,6 +28,8 @@ while p + 24 <= end:
         data = open(newloader, 'rb').read()
         assert data[:2] == b'MZ', 'not an EFI program'
         swapped = True
+    if name.rstrip(b'\0') == b'kernel.ver':
+        data = b'\0'       # the loader would put 59 characters of hakios_kver= into the kernel's command line
     if name.rstrip(b'\0') == b'cmdline':
         data = cmdline.encode() + b'\0'; found += 1
     if newkernel and name.rstrip(b'\0') == b'kernel':
@@ -38,7 +40,10 @@ while p + 24 <= end:
         assert data[32:36] == b'NXSB', 'not an APFS container'
     entries += struct.pack('<16sII', name, len(data), res) + data + b'\0' * (-len(data) % 16)
     p += 24 + sz + (-sz % 16)
-assert found == 1 and len(cmdline) < 600
+assert found == 1
+# The kernel holds 607 characters and the loader puts about 100 of its own in front (debug=, rd=, the shared
+# pages' addresses): what does not fit is cut off the END, and the kernel never hears of it.
+assert len(cmdline) <= 506, 'command line too long (%d > 506): its end would be cut off' % len(cmdline)
 assert swapped or not newloader, 'no loader.efi entry replaced'
 rest = body[p:end]               # end marker and padding
 assert not rest.strip(b'\0') and not body[end:].strip(b'\0'), 'unexpected data after payload'

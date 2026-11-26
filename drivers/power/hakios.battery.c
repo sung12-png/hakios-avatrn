@@ -94,6 +94,12 @@ battery_snapshot(struct loader_battery *out)
  */
 static uint32_t battery_by_voltage;
 
+/*
+ * Boot-arg battery_no_charger=1: what the firmware says about a charger is not passed on. On avatrn it showed
+ * charging all the time, with a current of 0, and the phone has run flat while "charging".
+ */
+static uint32_t battery_no_charger;
+
 static int
 percent_from_voltage(int mv)
 {
@@ -128,6 +134,10 @@ battery_poll(void)
 	if (battery_by_voltage && battery_voltage_mv > 0) {
 		battery_soc_percent = percent_from_voltage(battery_voltage_mv);
 		battery_soc_estimated = 1;
+	}
+	if (battery_no_charger) {
+		battery_charger_present = 0;
+		battery_charging = 0;
 	}
 	battery_updates++;
 }
@@ -223,6 +233,7 @@ hakios_battery_init(void)
 		return;
 	}
 	PE_parse_boot_argn("battery_by_voltage", &battery_by_voltage, sizeof(battery_by_voltage));
+	PE_parse_boot_argn("battery_no_charger", &battery_no_charger, sizeof(battery_no_charger));
 	printf("battery: Qualcomm UEFI cache at pa %#llx; polling every 5 seconds\n", shared_pa);
 	if (kernel_thread_start(battery_thread, NULL, &thread) == KERN_SUCCESS) thread_deallocate(thread);
 }

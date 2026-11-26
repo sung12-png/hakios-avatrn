@@ -83,6 +83,21 @@ Kernel needs CONFIG_HAKIOS_BATTERY=y. The loader asks the firmware's charger dri
 stayed at 8% on this phone while voltage (3.99 V) and temperature read well, so battery_by_voltage
 works the percentage out from the voltage: an estimate (58-60% shown where recovery had said 56%).
 
+    battery_no_charger=1: the firmware said "charging" all the time with a current of 0; not passed on.
+
+## Date
+The firmware's clock does not keep time here (no boot-epoch: Darwin starts in 1969), and the PMK8350's
+clock is a bare counter that runs while the phone is off. Two ways, used together or alone:
+- rtc_offset=N (hakios.avatrn_buttons.c, needs buttons=1): N = the computer's `date +%s` minus
+  /sys/class/rtc/rtc0/since_epoch read by adb in the recovery system. If the battery has run completely
+  flat the counter may have restarted: measure again.
+- avatrn/boot-now.py IMAGE: boots with this computer's time in epoch=.
+
+## The command line has a limit
+607 characters reach the kernel, and the loader puts its own in front; the END of ours is cut off and
+the kernel never hears of it (this is how rtc_offset= went missing). repack.py now blanks the
+kernel.ver entry (59 characters of hakios_kver=) and refuses a line over 506.
+
 ## Keyboard (libnodictation)
 With no dictation service running, the keyboard was told over and over that dictation's availability had
 changed, and SpringBoard did nothing else for minutes: no touch or button was answered. Found by sampling
