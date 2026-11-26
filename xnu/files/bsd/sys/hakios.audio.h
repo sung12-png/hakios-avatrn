@@ -115,6 +115,30 @@ typedef bool (*hakios_apr_events_t)(uint8_t service, uint16_t port, uint32_t opc
 bool hakios_adsp_apr(uint8_t service, uint16_t port, uint32_t token, uint32_t opcode, const void *payload, uint32_t length,
     uint32_t wait_ms, struct hakios_apr_answer *answer);
 void hakios_adsp_apr_events(hakios_apr_events_t handler);
+/*
+ * The same for a DSP whose audio framework speaks GPR (AudioReach: garnet's): one packet to a module's port (1 the
+ * audio processing manager, 2 the proxy resource manager), from a port of ours; the answer as above.
+ */
+#define GPR_PORT_APM    1
+#define GPR_PORT_PRM    2
+typedef bool (*hakios_gpr_events_t)(uint32_t from_port, uint32_t to_port, uint32_t opcode, uint32_t token, const uint32_t *payload,
+    uint32_t length);
+bool hakios_adsp_gpr(uint32_t from_port, uint32_t to_port, uint32_t token, uint32_t opcode, const void *payload, uint32_t length,
+    uint32_t wait_ms, struct hakios_apr_answer *answer);
+void hakios_adsp_gpr_events(hakios_gpr_events_t handler);
+/*
+ * The speakers' playback graph of the newer framework (hakios.adsp.c hands it over and starts it: 96 kHz, 16 bits,
+ * two channels in): whether it runs; memory of ours shown to it and taken back; a block of that memory written
+ * into it -- the "done" comes as an event with HAKIOS_GPR_WRITE_DONE and the write's token, the status in the
+ * payload's fourth word --; and the graph stopped, which has to come before the memory is taken back.
+ */
+#define HAKIOS_GPR_WRITE_DONE   0x05001004u
+#define HAKIOS_SPEAKER_GRAPH_HZ 96000u
+bool hakios_adsp_speaker_graph(void);
+bool hakios_adsp_speaker_map(uint64_t dsp_address, uint32_t bytes, uint32_t *handle);
+void hakios_adsp_speaker_unmap(uint32_t handle);
+bool hakios_adsp_speaker_write(uint64_t dsp_address, uint32_t handle, uint32_t bytes, uint32_t token);
+void hakios_adsp_speaker_graph_stop(void);
 const uint8_t *hakios_adsp_fw_file(const char *name, uint64_t *size);        /* /fw/name, read whole; give back with: */
 void hakios_adsp_fw_free(const uint8_t *data, uint64_t size);
 

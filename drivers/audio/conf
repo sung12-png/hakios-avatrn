@@ -11,6 +11,11 @@ driver ADSP
 	help    the audio DSP started and linked (adsp=1, adsp_step=N); the battery's state comes through it too.
 	help    Needs the DSP's firmware from the phone (fw-audio/)
 
+driver AVATRN_ADSP
+	file    bsd/dev/hakios.avatrn_adsp.c
+	default n
+	help    the Motorola Edge 2024's audio DSP (adsp_step=N): ios-garnet's driver, for the same SoC. Not with ADSP
+
 driver SPEAKER
 	file    bsd/dev/hakios.speaker.c
 	help    the two speaker amplifiers on I2C, and their watch of temperature and battery

@@ -98,7 +98,7 @@ errno_t hakios_apple80211_ioctl(__unused u_long command, __unused void *data) { 
 void HakiosWLANStart(__unused const char *interface, __unused const uint8_t *address) {}
 #endif
 
-#ifndef HAKIOS_ADSP
+#if !defined(HAKIOS_ADSP) && !defined(HAKIOS_AVATRN_ADSP)
 void hakios_adsp_init(void) {}
 void hakios_adsp_stop(void) {}
 void hakios_adsp_quiesce(void) {}
