@@ -2,13 +2,13 @@
 
 Made by `tools/boot-args.py --markdown`; CI fails if it is out of date with the source (`tools/boot-args.py --check`).
 
-Every argument that the kernel, the loader or user space of this port reads, and which file reads it. **328 arguments**: 278 read by the kernel, 14 by the loader, 46 by user space (one is read in more than one place).
+Every argument that the kernel, the loader or user space of this port reads, and which file reads it. **340 arguments**: 290 read by the kernel, 16 by the loader, 46 by user space (one is read in more than one place).
 
 This is a catalogue of what exists and who reads it, not a manual. What an argument means is in the head of the file that reads it. The stable switches have a symbol in the configuration (`tools/hakios-config.py help SYMBOL`, `docs/configs.md`); the rest are the knobs of bring-up (a driver's steps, pauses, traces, test modes) and can change with the driver. Any of them can be given in a configuration with `CONFIG_BOOTARGS="name=value ..."`, which checks that each name is in this list.
 
 Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl kern.bootargs`).
 
-## GPU and display (69)
+## GPU and display (71)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -67,9 +67,11 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `glwait` | U | `eagl.c` | `CONFIG_GLWAIT` |  |
 | `gpu` | K | `hakios.adreno.c` | `CONFIG_GPU` |  |
 | `gpu_cached` | K | `hakios.gpu.cpp` | `CONFIG_GPU_CACHED` |  |
+| `gpu_delay` | K | `hakios.adreno.c` | `CONFIG_GPU_DELAY` |  |
 | `gpu_exact` | K | `hakios.adreno.c` | `CONFIG_GPU_EXACT` |  |
 | `gpu_keep` | K | `hakios.gpu.cpp` | `CONFIG_GPU_KEEP` |  |
 | `gpu_log` | K | `hakios.adreno.c` | `CONFIG_GPU_LOG` |  |
+| `gpu_soc` | K | `hakios.adreno.c` | `CONFIG_GPU_SOC` |  |
 | `metal` | KU | `HakiosMetal.m`, `MiniIOMobileFramebuffer.cpp` | `CONFIG_METAL` |  |
 | `rec_mb` | K | `MiniIOMobileFramebuffer.cpp` | `CONFIG_REC_MB` |  |
 | `rec_ring` | K | `MiniIOMobileFramebuffer.cpp` | `CONFIG_REC_RING` |  |
@@ -182,7 +184,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `soc_pas_mpss` | K | `hakios.mpss.c` | `CONFIG_SOC_PAS_MPSS` |  |
 | `soc_smem` | K | `hakios.mpss.c`, `hakios.socinfo.c` | `CONFIG_SOC_SMEM` |  |
 
-## Audio and battery (33)
+## Audio and battery (34)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -197,6 +199,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `adsp_step` | K | `hakios.adsp.c` | `CONFIG_ADSP_STEP` |  |
 | `adsp_wait` | K | `hakios.adsp.c` | `CONFIG_ADSP_WAIT` |  |
 | `battery` | KL | `hakios.adsp.c`, `hakios.battery.c`, `loader.c` | `CONFIG_BATTERY` |  |
+| `battery_by_voltage` | K | `hakios.battery.c` | `CONFIG_BATTERY_BY_VOLTAGE` |  |
 | `battery_shared_pa` | K | `hakios.battery.c` |  | the loader (the address of its charger page) |
 | `battery_stop` | K | `hakios.battguard.c` | `CONFIG_BATTERY_STOP` |  |
 | `battery_stop_poll` | K | `hakios.battguard.c` | `CONFIG_BATTERY_STOP_POLL` |  |
@@ -251,7 +254,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `touchscreen` | K | `hakios.avatrn_buttons.c`, `hakios.avatrn_goodix.c`, `hakios.buttons.c`, `hakios.goodix.c` | `CONFIG_TOUCHSCREEN` |  |
 | `virtio_input` | K | `hakios.virtio_input.c` | `CONFIG_VIRTIO_INPUT` |  |
 
-## Storage and APFS (43)
+## Storage and APFS (45)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -295,6 +298,8 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `ufs_native_slots` | K | `hakios.ufshc.c` | `CONFIG_UFS_NATIVE_SLOTS` |  |
 | `ufs_native_spin` | K | `hakios.ufshc.c` | `CONFIG_UFS_NATIVE_SPIN` |  |
 | `ufs_shared_pa` | K | `hakios.ufs.c` |  | the loader (the address of its block-service page) |
+| `ufs_window` | KL | `hakios.ufs.c`, `loader.c` | `CONFIG_UFS_WINDOW` |  |
+| `ufs_window_dry` | KL | `hakios.ufs.c`, `loader.c` | `CONFIG_UFS_WINDOW_DRY` |  |
 | `ufs_write` | KL | `hakios.ufs.c`, `loader.c` | `CONFIG_UFS_WRITE` |  |
 | `var_save_ms` | K | `hakios.ufs.c` | `CONFIG_VAR_SAVE_MS` |  |
 | `virtio_blk` | K | `hakios.virtio_blk.c` | `CONFIG_VIRTIO_BLK` |  |
@@ -317,7 +322,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `torch_max_s` | K | `hakios.torch.c` | `CONFIG_TORCH_MAX_S` |  |
 | `torch_secs` | K | `hakios.torch.c` | `CONFIG_TORCH_SECS` |  |
 
-## Chip, thermal and PMIC (10)
+## Chip, thermal and PMIC (15)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -326,11 +331,16 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `soc_smem_size` | K | `hakios.socinfo.c` | `CONFIG_SOC_SMEM_SIZE` |  |
 | `socinfo` | K | `hakios.socinfo.c` | `CONFIG_SOCINFO` |  |
 | `thermal` | K | `hakios.thermal.c` | `CONFIG_THERMAL` |  |
+| `thermal_crit` | K | `hakios.thermal.c` | `CONFIG_THERMAL_CRIT` |  |
+| `thermal_hot` | K | `hakios.thermal.c` | `CONFIG_THERMAL_HOT` |  |
 | `thermal_log` | K | `hakios.thermal.c` | `CONFIG_THERMAL_LOG` |  |
 | `thermal_poll` | K | `hakios.thermal.c` | `CONFIG_THERMAL_POLL` |  |
+| `thermal_soc` | K | `hakios.thermal.c` | `CONFIG_THERMAL_SOC` |  |
 | `thermal_stop` | K | `hakios.thermal.c` | `CONFIG_THERMAL_STOP` |  |
+| `thermal_throttle` | K | `hakios.thermal.c` | `CONFIG_THERMAL_THROTTLE` |  |
 | `thermal_tm0` | K | `hakios.thermal.c` | `CONFIG_THERMAL_TM0` |  |
 | `thermal_tm1` | K | `hakios.thermal.c` | `CONFIG_THERMAL_TM1` |  |
+| `thermal_warm` | K | `hakios.thermal.c` | `CONFIG_THERMAL_WARM` |  |
 
 ## Version (1)
 
@@ -391,7 +401,7 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `ufs` | L | `loader.c` | `CONFIG_UFS` |  |
 | `ufs_probe` | L | `loader.c` | `CONFIG_UFS_PROBE` |  |
 
-## User space (20)
+## User space (22)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
@@ -411,6 +421,8 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `switcher_wallpaper` | U | `inject_sb.c` | `CONFIG_SWITCHER_WALLPAPER` |  |
 | `touch_avdd` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_AVDD` |  |
 | `touch_bitbang` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_BITBANG` |  |
+| `touch_boot_ms` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_BOOT_MS` |  |
+| `touch_delay` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_DELAY` |  |
 | `touch_step` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_STEP` |  |
 | `touch_trace` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_TRACE` |  |
 | `var_hfs` | U | `init.c` | `CONFIG_VAR_HFS` |  |

@@ -19,7 +19,8 @@ Experimental. Use at your own risk, only on your own phone.
 - Settings > Notifications crashes Settings (cause not found yet).
 - fbscale=2 is faster, but SpringBoard shows a red strip and icons cached at 3 pixels a point come out
   too large.
-- Frame drops in the App Library; typing and the system at large are on the slow side. The battery icon is wrong. No sound, Wi-Fi or modem here.
+- Frame drops in the App Library; typing and the system at large are on the slow side. No sound, Wi-Fi or modem here. It seems not to charge while iOS runs (it has run flat in testing;
+  the current reads 0): charge with the phone off or in Android.
 
 ## Boot arguments of the working image
     sb_delay=8 root_apfs=ufs_userdata ufs=2 ufs_native=1 bootcpu=7 cpus=8 touchscreen=1 touch_avdd=1
@@ -75,6 +76,12 @@ top is cut to 70 / 55 / 40 % and the GPU asked for 345 / 295 / 295 MHz; at therm
 thermal_warm=, thermal_hot=, thermal_crit= change the thresholds. No sensor of the case is read. Checked
 on the phone with thresholds set low (GPU message accepted, processors read back at 691 and 960 MHz); not
 yet seen under real heat.
+
+## Battery level
+    battery=1 battery_by_voltage=1
+Kernel needs CONFIG_HAKIOS_BATTERY=y. The loader asks the firmware's charger drivers; their percentage
+stayed at 8% on this phone while voltage (3.99 V) and temperature read well, so battery_by_voltage
+works the percentage out from the voltage: an estimate (58-60% shown where recovery had said 56%).
 
 ## Keyboard (libnodictation)
 With no dictation service running, the keyboard was told over and over that dictation's availability had

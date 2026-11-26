@@ -87,6 +87,24 @@ battery_snapshot(struct loader_battery *out)
 	return false;
 }
 
+/*
+ * Boot-arg battery_by_voltage=1: the percentage is worked out from the cell's voltage (the loader's curve)
+ * and said to be an estimate. For avatrn, where the firmware's own number stayed at 8% while the cell read
+ * 3.99 V and the recovery system 56%. It reads high while a charger holds the voltage up.
+ */
+static uint32_t battery_by_voltage;
+
+static int
+percent_from_voltage(int mv)
+{
+	if (mv <= 3300) return 0;
+	if (mv < 3700) return (mv - 3300) * 10 / 400;
+	if (mv < 3900) return 10 + (mv - 3700) * 40 / 200;
+	if (mv < 4200) return 50 + (mv - 3900) * 40 / 300;
+	if (mv < 4400) return 90 + (mv - 4200) * 10 / 200;
+	return 100;
+}
+
 static void
 battery_poll(void)
 {
@@ -107,6 +125,10 @@ battery_poll(void)
 	battery_charging = (sample.flags & LOADER_BATTERY_CHARGING) != 0;
 	battery_soc_estimated = (sample.flags & LOADER_BATTERY_SOC_ESTIMATED) != 0;
 	battery_charger_action = (int)sample.charger_action;
+	if (battery_by_voltage && battery_voltage_mv > 0) {
+		battery_soc_percent = percent_from_voltage(battery_voltage_mv);
+		battery_soc_estimated = 1;
+	}
 	battery_updates++;
 }
 
@@ -200,6 +222,7 @@ hakios_battery_init(void)
 		    shared_battery->magic, shared_battery->version, shared_battery->size);
 		return;
 	}
+	PE_parse_boot_argn("battery_by_voltage", &battery_by_voltage, sizeof(battery_by_voltage));
 	printf("battery: Qualcomm UEFI cache at pa %#llx; polling every 5 seconds\n", shared_pa);
 	if (kernel_thread_start(battery_thread, NULL, &thread) == KERN_SUCCESS) thread_deallocate(thread);
 }
