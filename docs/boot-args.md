@@ -2,7 +2,7 @@
 
 Made by `tools/boot-args.py --markdown`; CI fails if it is out of date with the source (`tools/boot-args.py --check`).
 
-Every argument that the kernel, the loader or user space of this port reads, and which file reads it. **342 arguments**: 292 read by the kernel, 16 by the loader, 46 by user space (one is read in more than one place).
+Every argument that the kernel, the loader or user space of this port reads, and which file reads it. **347 arguments**: 297 read by the kernel, 16 by the loader, 46 by user space (one is read in more than one place).
 
 This is a catalogue of what exists and who reads it, not a manual. What an argument means is in the head of the file that reads it. The stable switches have a symbol in the configuration (`tools/hakios-config.py help SYMBOL`, `docs/configs.md`); the rest are the knobs of bring-up (a driver's steps, pauses, traces, test modes) and can change with the driver. Any of them can be given in a configuration with `CONFIG_BOOTARGS="name=value ..."`, which checks that each name is in this list.
 
@@ -188,23 +188,23 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
-| `adsp` | K | `hakios.adsp.c` | `CONFIG_ADSP` |  |
-| `adsp_again` | K | `hakios.adsp.c` | `CONFIG_ADSP_AGAIN` |  |
-| `adsp_apr_wait` | K | `hakios.adsp.c` | `CONFIG_ADSP_APR_WAIT` |  |
-| `adsp_keep` | K | `hakios.adsp.c` | `CONFIG_ADSP_KEEP` |  |
-| `adsp_listen` | K | `hakios.adsp.c` | `CONFIG_ADSP_LISTEN` |  |
-| `adsp_new` | K | `hakios.adsp.c` | `CONFIG_ADSP_NEW` |  |
-| `adsp_pause` | K | `hakios.adsp.c` | `CONFIG_ADSP_PAUSE` |  |
-| `adsp_return` | K | `hakios.adsp.c` | `CONFIG_ADSP_RETURN` |  |
-| `adsp_step` | K | `hakios.adsp.c` | `CONFIG_ADSP_STEP` |  |
-| `adsp_wait` | K | `hakios.adsp.c` | `CONFIG_ADSP_WAIT` |  |
-| `battery` | KL | `hakios.adsp.c`, `hakios.battery.c`, `loader.c` | `CONFIG_BATTERY` |  |
+| `adsp` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP` |  |
+| `adsp_again` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_AGAIN` |  |
+| `adsp_apr_wait` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_APR_WAIT` |  |
+| `adsp_keep` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_KEEP` |  |
+| `adsp_listen` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_LISTEN` |  |
+| `adsp_new` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_NEW` |  |
+| `adsp_pause` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_PAUSE` |  |
+| `adsp_return` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_RETURN` |  |
+| `adsp_step` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_STEP` |  |
+| `adsp_wait` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_ADSP_WAIT` |  |
+| `battery` | KL | `hakios.adsp.c`, `hakios.avatrn_adsp.c`, `hakios.battery.c`, `loader.c` | `CONFIG_BATTERY` |  |
 | `battery_by_voltage` | K | `hakios.battery.c` | `CONFIG_BATTERY_BY_VOLTAGE` |  |
 | `battery_no_charger` | K | `hakios.battery.c` | `CONFIG_BATTERY_NO_CHARGER` |  |
 | `battery_shared_pa` | K | `hakios.battery.c` |  | the loader (the address of its charger page) |
 | `battery_stop` | K | `hakios.battguard.c` | `CONFIG_BATTERY_STOP` |  |
 | `battery_stop_poll` | K | `hakios.battguard.c` | `CONFIG_BATTERY_STOP_POLL` |  |
-| `battmgr` | K | `hakios.adsp.c` | `CONFIG_BATTMGR` |  |
+| `battmgr` | K | `hakios.adsp.c`, `hakios.avatrn_adsp.c` | `CONFIG_BATTMGR` |  |
 | `mic` | K | `hakios.mic.c` | `CONFIG_MIC` |  |
 | `mic_adc` | K | `hakios.mic.c` | `CONFIG_MIC_ADC` |  |
 | `mic_input` | K | `hakios.mic.c` | `CONFIG_MIC_INPUT` |  |
@@ -402,10 +402,14 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `ufs` | L | `loader.c` | `CONFIG_UFS` |  |
 | `ufs_probe` | L | `loader.c` | `CONFIG_UFS_PROBE` |  |
 
-## User space (23)
+## User space (28)
 
 | Argument | Layer | Read by | Configuration | Set by |
 |---|---|---|---|---|
+| `adsp_battery` | K | `hakios.avatrn_adsp.c` | `CONFIG_ADSP_BATTERY` |  |
+| `adsp_below` | K | `hakios.avatrn_adsp.c` | `CONFIG_ADSP_BELOW` |  |
+| `adsp_own_clock` | K | `hakios.avatrn_adsp.c` | `CONFIG_ADSP_OWN_CLOCK` |  |
+| `adsp_tone_secs` | K | `hakios.avatrn_adsp.c` | `CONFIG_ADSP_TONE_SECS` |  |
 | `autounlock` | U | `inject_sb.c` | `CONFIG_AUTOUNLOCK` |  |
 | `bt` | K | `hakios.bt.c` | `CONFIG_BT` |  |
 | `bt_again` | K | `hakios.bt.c` | `CONFIG_BT_AGAIN` |  |
@@ -427,5 +431,6 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `touch_delay` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_DELAY` |  |
 | `touch_step` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_STEP` |  |
 | `touch_trace` | K | `hakios.avatrn_goodix.c` | `CONFIG_TOUCH_TRACE` |  |
+| `usb_ma` | K | `hakios.avatrn_adsp.c` | `CONFIG_USB_MA` |  |
 | `var_hfs` | U | `init.c` | `CONFIG_VAR_HFS` |  |
 | `var_store` | U | `init.c` | `CONFIG_VAR_STORE` |  |

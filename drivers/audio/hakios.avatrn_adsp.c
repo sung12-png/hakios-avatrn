@@ -3141,7 +3141,9 @@ battmgr_thread(__unused void *parameter, __unused wait_result_t result)
 			}
 			b.percent_hundredths = (int32_t)capacity;
 			b.voltage_uv = (int32_t)volt;
-			b.current_ua = -(int32_t)curr;          /* (the DSP counts what leaves the battery) */
+			/* avatrn: this firmware's current is positive into the battery already (+2.2 A on a wall charger, the
+			 * capacity rising; negative with the cable out), the opposite of garnet's */
+			b.current_ua = (int32_t)curr;
 			b.temperature_hundredths = (int32_t)temp;
 			b.present = present != 0;
 			b.external = usb != 0;
@@ -3164,8 +3166,24 @@ battmgr_thread(__unused void *parameter, __unused wait_result_t result)
 				tell("adsp: battmgr: full charge %u uAh, as designed %u uAh, %u cycles\n", full, design, cycles);
 			}
 		}
-		for (unsigned ms = 0; ms < BATTMGR_SECONDS * 1000 && battmgr.wanted && glink.up; ms += 50) {
-			sleep_ms(50);
+		/* avatrn: a notice (the cable, the charging state) ends the wait early; and again a little later, for what
+		 * the charger has settled on by then */
+		{
+			static unsigned follow_ups;
+			uint32_t seen = battmgr.notices;
+			uint32_t wait = follow_ups > 0 ? 2000 : BATTMGR_SECONDS * 1000;
+
+			if (follow_ups > 0) {
+				follow_ups--;
+			}
+			for (unsigned ms = 0; ms < wait && battmgr.wanted && glink.up; ms += 50) {
+				sleep_ms(50);
+				if (battmgr.notices != seen) {
+					sleep_ms(300);
+					follow_ups = 3;
+					break;
+				}
+			}
 		}
 	}
 	battmgr.runs = false;

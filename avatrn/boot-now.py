@@ -27,7 +27,8 @@ def main():
     args = [a for a in sys.argv[1:] if a != '--no-boot']
     if len(args) != 1:
         sys.exit(__doc__)
-    words = [w for w in cmdline_of(args[0]).split() if not w.startswith('epoch=')]
+    # (rtc_offset= goes too: epoch= wins over it, and the line has little room)
+    words = [w for w in cmdline_of(args[0]).split() if not w.startswith(('epoch=', 'rtc_offset='))]
     here = os.path.dirname(os.path.abspath(__file__))
     with tempfile.TemporaryDirectory() as t:
         out = os.path.join(t, 'now.img')

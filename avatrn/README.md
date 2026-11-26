@@ -19,8 +19,7 @@ Experimental. Use at your own risk, only on your own phone.
 - Settings > Notifications crashes Settings (cause not found yet).
 - fbscale=2 is faster, but SpringBoard shows a red strip and icons cached at 3 pixels a point come out
   too large.
-- Frame drops in the App Library; typing and the system at large are on the slow side. No sound, Wi-Fi or modem here. It seems not to charge while iOS runs (it has run flat in testing;
-  the current reads 0): charge with the phone off or in Android.
+- Frame drops in the App Library; typing and the system at large are on the slow side. No sound, Wi-Fi or modem here.
 
 ## Boot arguments of the working image
     sb_delay=8 root_apfs=ufs_userdata ufs=2 ufs_native=1 bootcpu=7 cpus=8 touchscreen=1 touch_avdd=1
@@ -77,13 +76,19 @@ thermal_warm=, thermal_hot=, thermal_crit= change the thresholds. No sensor of t
 on the phone with thresholds set low (GPU message accepted, processors read back at 691 and 960 MHz); not
 yet seen under real heat.
 
-## Battery level
-    battery=1 battery_by_voltage=1
-Kernel needs CONFIG_HAKIOS_BATTERY=y. The loader asks the firmware's charger drivers; their percentage
-stayed at 8% on this phone while voltage (3.99 V) and temperature read well, so battery_by_voltage
-works the percentage out from the voltage: an estimate (58-60% shown where recovery had said 56%).
+## Battery and charging (the audio DSP)
+    adsp_step=11 adsp_keep=1 adsp_battery=1 adsp_new=12 usb_ma=0
+The audio DSP is started during boot and runs the charger and fuel gauge: a true percentage, and the phone
+charges while iOS runs (seen: 55 to 61 % on a wall charger; on a computer's port it still drains slowly).
+Kernel: CONFIG_HAKIOS_AVATRN_ADSP=y and CONFIG_HAKIOS_BATTERY=y (drivers/audio/hakios.avatrn_adsp.c,
+from ios-garnet). The RAM image needs fw/adsp.mdt and fw/adsp.bNN from the phone's own firmware (its
+modem partition's image/ directory), stored plain: the vendor's, never commit them. usb_ma=0 leaves a
+computer port's 400 mA limit alone (without it the driver asks for 500). Speaker steps (12-15) are not run.
+Not right yet: the temperature reads 2 (hundredths of a degree) and the cycle count repeats the design
+capacity: this firmware's property numbers differ. Do not rely on either.
 
-    battery_no_charger=1: the firmware said "charging" all the time with a current of 0; not passed on.
+The older way, without the DSP: battery=1 battery_by_voltage=1 battery_no_charger=1 -- the loader asks the
+firmware's charger drivers, whose percentage stayed at 8 % here; an estimate from voltage, no charging.
 
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
