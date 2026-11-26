@@ -1,0 +1,19 @@
+On an Adreno of the seventh generation every framebuffer-reading draw waits for idle (see fd6_draw.cc).
+
+--- a/src/gallium/drivers/freedreno/a6xx/fd6_draw.cc	2026-11-26 08:20:02.009045192 -0600
++++ b/src/gallium/drivers/freedreno/a6xx/fd6_draw.cc	2026-11-26 08:20:02.018993334 -0600
+@@ -460,6 +460,14 @@
+       ctx->batch->barrier |= FD6_FLUSH_CCU_COLOR | FD6_INVALIDATE_CACHE;
+    ctx->batch->prev_draw_read_fb = emit.fs->fb_read;
+ 
++   /* Darwin on hakios, seen on an Adreno 710: the flush above is not enough here. Icons and
++    * widgets came out with small pieces missing or added until every draw that reads the
++    * framebuffer waited for the GPU to be idle (the wait alone; a CCU flush and a UCHE
++    * invalidate without it did not mend it).
++    */
++   if (CHIP >= A7XX && unlikely(emit.fs->fb_read))
++      ctx->batch->barrier |= FD6_WAIT_FOR_IDLE | FD6_WAIT_FOR_ME;
++
+    if (ctx->batch->barrier)
+       fd6_barrier_flush<CHIP>(ctx->batch);
+ 

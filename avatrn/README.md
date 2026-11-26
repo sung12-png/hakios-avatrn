@@ -16,6 +16,9 @@ Experimental. Use at your own risk, only on your own phone.
   needs libnodictation (below).
 - searchd stops itself without SpotlightServices' ranking models, which select-system.py leaves out
   (userland/src/init.c overlays them if the boot image has /overlay-spotlight).
+- Settings > Notifications crashes Settings (cause not found yet).
+- fbscale=2 is faster, but SpringBoard shows a red strip and icons cached at 3 pixels a point come out
+  too large.
 - Frame drops in the App Library; typing and the system at large are on the slow side. The battery icon is wrong. No sound, Wi-Fi or modem here.
 
 ## Boot arguments of the working image
@@ -31,11 +34,11 @@ The window server draws by the GPU through Mesa; reported a lot smoother, with s
     cpufreq=1 soc_epss=0x17d91000 epss_cores=4 soc_rsc=0x17a20000
 
 (no gpu_delay: the GPU has to be there before the first program; gl=0: software drawing again).
-Not fixed: icons and widgets show small pieces missing or added. FD_MESA_DEBUG=flush cured them,
-slowly (sysmem, noubwc, nolrz, inorder did not). glfetch=0 (no EXT_shader_framebuffer_fetch for
-CoreAnimation) cured them too, but then the text of "slide to power off" flashes as a solid blue
-rectangle, so it is not used. The flush before the first framebuffer-reading draw
-(freedreno-darwin.patch) is evidently not enough on this GPU.
+Icons and widgets showed small pieces missing or added until tools/mesa/z-a7xx-fb-read-wait.patch:
+every framebuffer-reading draw waits for the GPU to be idle. Verified on the phone, power-off screen
+included. What the test builds said: the wait alone cures it; a CCU flush and UCHE invalidate without
+it do not; neither do sysmem, noubwc, nolrz or inorder; glfetch=0 cures the icons but makes the
+power-off slider's text flash. A new Mesa goes into the RAM image's lib/ and redwood/lib/.
 adreno_speed 1, 2, 3 = 295, 345, 500 MHz (4 = 600, not verified); see Thermals. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
 
 The RAM image needs, besides the above:
