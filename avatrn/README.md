@@ -112,6 +112,9 @@ Settings before browsing. The RAM image needs:
 Appending the whole App cryptex to the RAM image made a boot image the loader did not start (about 67 MB
 unpacked). Not done: the radio's interrupts (its rings are polled every 100 ms).
 
+With Wi-Fi and sound in one kernel the 8 MB XNU keeps for device register maps is too small (the speakers went
+silent): apply avatrn/io_map-64mb.patch to the XNU tree (xnu-src/xnu-8796.121.2, patch -p1) before building.
+
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
 could be picked. The RAM image's etc/rc.jobs now runs /usr/libexec/tzinit (Apple's own, in the system
