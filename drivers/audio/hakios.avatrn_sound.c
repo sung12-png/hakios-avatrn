@@ -980,7 +980,7 @@ period_fill(unsigned period, bool silent)
  */
 static bool newer;
 #define NEWER_TOKEN             0x01000000u     /* | the period (the commands' own tokens stay under it) */
-#define NEWER_FRAMES            (PERIOD_FRAMES / 2)
+#define NEWER_FRAMES            PERIOD_FRAMES   /* avatrn: the graph is at 48 kHz, as Darwin's sound is */
 
 static bool
 newer_events(__unused uint32_t from_port, __unused uint32_t to_port, uint32_t opcode, uint32_t token, const uint32_t *payload,
@@ -1202,8 +1202,7 @@ guard_say(const char *when, bool quiet)
 static void
 period_fill_darwin(unsigned period)
 {
-	static int16_t staged[PERIOD_FRAMES * 2], last[2];
-	int16_t *out = (int16_t *)(buffer + 4096 * period), *samples = newer ? staged : out;
+	int16_t *samples = (int16_t *)(buffer + 4096 * period);
 	uint32_t frames = newer ? NEWER_FRAMES : PERIOD_FRAMES;
 	uint32_t tail = ring_tail, available = ring_head - tail, n = available < frames ? available : frames;
 
@@ -1223,19 +1222,7 @@ period_fill_darwin(unsigned period)
 		hakios_audio_record_fed(samples, n);
 	}
 	guard_periods++;
-	if (newer) {
-		/* (every frame twice as many: the one between it and the one before, then itself) */
-		for (uint32_t i = 0; i < frames; i++) {
-			for (unsigned c = 0; c < 2; c++) {
-				int16_t now = staged[2 * i + c];
-
-				out[4 * i + c] = (int16_t)((last[c] + now) / 2);
-				out[4 * i + 2 + c] = now;
-				last[c] = now;
-			}
-		}
-	}
-	for (vm_offset_t line = (vm_offset_t)out; line < (vm_offset_t)out + PERIOD_BYTES; line += 64) {
+	for (vm_offset_t line = (vm_offset_t)samples; line < (vm_offset_t)samples + PERIOD_BYTES; line += 64) {
 		__asm__ volatile ("dc cvac, %0" : : "r" (line));
 	}
 	__asm__ volatile ("dsb sy");

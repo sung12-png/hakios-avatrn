@@ -19,7 +19,7 @@ Experimental. Use at your own risk, only on your own phone.
 - Settings > Notifications crashes Settings (cause not found yet).
 - fbscale=2 is faster, but SpringBoard shows a red strip and icons cached at 3 pixels a point come out
   too large.
-- Frame drops in the App Library; typing and the system at large are on the slow side. No sound, Wi-Fi or modem here.
+- Frame drops in the App Library; typing and the system at large are on the slow side. No Wi-Fi or modem here; sound is from the speakers only.
 
 ## Boot arguments of the working image
     sb_delay=8 root_apfs=ufs_userdata ufs=2 ufs_native=1 bootcpu=7 cpus=8 touchscreen=1 touch_avdd=1
@@ -89,6 +89,16 @@ capacity: this firmware's property numbers differ. Do not rely on either.
 
 The older way, without the DSP: battery=1 battery_by_voltage=1 battery_no_charger=1 -- the loader asks the
 firmware's charger drivers, whose percentage stayed at 8 % here; an estimate from voltage, no charging.
+
+## Sound (both speakers, through the same audio DSP)
+    adsp_step=13 adsp_keep=1 adsp_battery=1 adsp_new=14 usb_ma=0 sound_below=96
+Kernel: CONFIG_HAKIOS_AVATRN_ADSP, _SPEAKER and _SOUND (drivers/audio/hakios.avatrn_*.c, from ios-garnet).
+AudioReach graph into the island's primary I2S (48 kHz, 32 bits, 2 channels; pins 6-8), two AW88261 at I2C
+0x35 and 0x34 on GPIO 24/25 with no reset lines, set up from the phone's own aw882xx_acf.bin ("Music"),
+which goes into the RAM image's fw/ (stored plain; the vendor's, never commit it). The speakers' guard
+limits what they get; sound_below= is eighths of a dB under Android's level (96: 12 dB; the first try).
+Steps to look with, without iOS: speaker_probe=2, adsp_step=14 (tone, amplifiers off), =15 (audible, 2 s).
+Not done: microphones, the earpiece as its own route, headphones, Bluetooth, calls.
 
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino

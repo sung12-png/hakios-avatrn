@@ -215,12 +215,12 @@ Layers: **K** the kernel, **L** the loader, **U** user space (through `sysctl ke
 | `rec_sound` | K | `hakios.audio.c` | `CONFIG_REC_SOUND` |  |
 | `rec_sound_fed` | K | `hakios.audio.c` | `CONFIG_REC_SOUND_FED` |  |
 | `rec_sound_mic` | K | `hakios.audio.c` | `CONFIG_REC_SOUND_MIC` |  |
-| `sound` | K | `hakios.sound.c` | `CONFIG_SOUND` |  |
-| `sound_below` | K | `hakios.sound.c` | `CONFIG_SOUND_BELOW` |  |
-| `sound_gain` | K | `hakios.sound.c` | `CONFIG_SOUND_GAIN` |  |
-| `sound_guard_as` | K | `hakios.sound.c` | `CONFIG_SOUND_GUARD_AS` |  |
-| `sound_pause` | K | `hakios.sound.c` | `CONFIG_SOUND_PAUSE` |  |
-| `sound_secs` | K | `hakios.sound.c` | `CONFIG_SOUND_SECS` |  |
+| `sound` | K | `hakios.avatrn_sound.c`, `hakios.sound.c` | `CONFIG_SOUND` |  |
+| `sound_below` | K | `hakios.avatrn_sound.c`, `hakios.sound.c` | `CONFIG_SOUND_BELOW` |  |
+| `sound_gain` | K | `hakios.avatrn_sound.c`, `hakios.sound.c` | `CONFIG_SOUND_GAIN` |  |
+| `sound_guard_as` | K | `hakios.avatrn_sound.c`, `hakios.sound.c` | `CONFIG_SOUND_GUARD_AS` |  |
+| `sound_pause` | K | `hakios.avatrn_sound.c`, `hakios.sound.c` | `CONFIG_SOUND_PAUSE` |  |
+| `sound_secs` | K | `hakios.avatrn_sound.c`, `hakios.sound.c` | `CONFIG_SOUND_SECS` |  |
 | `speaker_probe` | K | `hakios.avatrn_speaker.c`, `hakios.speaker.c` | `CONFIG_SPEAKER_PROBE` |  |
 | `virtio_sound` | K | `hakios.virtio_sound.c` | `CONFIG_VIRTIO_SOUND` |  |
 

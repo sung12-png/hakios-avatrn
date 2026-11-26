@@ -4485,6 +4485,11 @@ hakios_adsp_init(void)
 	if (option("adsp_battery") && keep && dsp_started && step == last_step && last_step >= 11) {
 		battmgr_start();
 	}
+	/* avatrn: with the playback graph running and the DSP kept (adsp_step=13 adsp_keep=1), what Darwin plays goes to
+	 * the speakers (hakios.avatrn_sound.c; sound=0 keeps them silent) */
+	if (keep && dsp_started && step == last_step && hakios_adsp_speaker_graph()) {
+		hakios_sound_dsp_up();
+	}
 	if (option("adsp_return")) {
 		printf("adsp: back to the loader (adsp_return)\n");
 		loader_return();
