@@ -4477,6 +4477,10 @@ hakios_adsp_init(void)
 	printf("adsp: steps up to %u; those from %u on are new and wait %u ms after each announcement\n", last_step, new_from,
 	    pause_ms);
 	run_steps();
+	/* avatrn: the battery asked about without the steps that touch the speakers' pins (adsp=1 would run them all) */
+	if (option("adsp_battery") && keep && dsp_started && step == last_step && last_step >= 11) {
+		battmgr_start();
+	}
 	if (option("adsp_return")) {
 		printf("adsp: back to the loader (adsp_return)\n");
 		loader_return();
