@@ -19,7 +19,7 @@ Experimental. Use at your own risk, only on your own phone.
 - Settings > Notifications crashes Settings (cause not found yet).
 - fbscale=2 is faster, but SpringBoard shows a red strip and icons cached at 3 pixels a point come out
   too large.
-- Frame drops in the App Library; typing and the system at large are on the slow side. No Wi-Fi or modem here; sound is from the speakers only.
+- Frame drops in the App Library; typing and the system at large are on the slow side. No modem here; sound is from the speakers only.
 
 ## Boot arguments of the working image
     sb_delay=8 root_apfs=ufs_userdata ufs=2 ufs_native=1 bootcpu=7 cpus=8 touchscreen=1 touch_avdd=1
@@ -100,7 +100,12 @@ limits what they get; sound_below= is eighths of a dB under Android's level (96:
 Steps to look with, without iOS: speaker_probe=2, adsp_step=14 (tone, amplifiers off), =15 (audible, 2 s).
 Not done: microphones, the earpiece as its own route, headphones, Bluetooth, calls.
 
-## Wi-Fi (not usable yet)
+## Wi-Fi (first pages load; Safari freezes on others)
+Inside iOS: wifi=2 (avatrn's settings, no interrupts, a made-up address unless wifi_mac=). The RAM image needs
+the radio's files in fw/, and in LaunchDaemons/ com.hakios.wifi.plist and Apple's com.apple.wifid.plist with
+_LimitLoadToDeviceTree removed (init binds this directory over the system's, so a job not in it does not run).
+Seen on the phone: apple.com loaded in Safari.
+
 WCN6750, as on redwood. Kernel: tools/mk-ath11k.sh, then once built tools/mk-wlfw.sh, CONFIG_HAKIOS_WIFI and
 _QMI. wifi_avatrn=1: avatrn's IPCC (0xed18000), RPMh sequencer (0x17a20000), Wi-Fi memory (0x85300000) and
 file names; the small image's fw/ needs wpss.mdt, wpss.bNN, regdb.bin and bdwlan.elf.avatrn.epa from the

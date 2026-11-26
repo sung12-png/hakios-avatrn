@@ -334,6 +334,9 @@ settle(void)
 static bool whole;                      /* wifi=1: all of it, by itself (see the top of this file) */
 static volatile bool whole_runs;        /* ... and the thread that does it is at work */
 
+/* avatrn (SM7435): boot-arg wifi_avatrn=1 or wifi=2 -- its IPCC, RPMh sequencer and Wi-Fi memory are elsewhere */
+static uint32_t wifi_avatrn;
+
 /*
  * A number given to the kernel when it was started; with wifi=1 the ones that stands for are as if
  * given, unless given otherwise (wifi_irq=0: the rings looked at as before).
@@ -353,6 +356,9 @@ hakios_wifi_option(const char *name)
 	}
 	if (PE_parse_boot_argn(name, &value, sizeof(value))) {
 		return value;
+	}
+	if (wifi_avatrn && strcmp(name, "wifi_irq") == 0) {
+		return 0;                       /* (RADIO_FIRST_SPI is redwood's; avatrn's are not looked up yet) */
 	}
 	for (unsigned i = 0; whole && i < sizeof(stands_for) / sizeof(stands_for[0]); i++) {
 		if (strcmp(name, stands_for[i].name) == 0) {
@@ -814,9 +820,6 @@ step_smem(void)
  * is. A message is text; it goes into our mailbox behind its length, the doorbell is rung, and
  * the always-on processor has taken it when the length reads zero.
  */
-/* avatrn (SM7435): boot-arg wifi_avatrn=1 -- its IPCC, RPMh sequencer and Wi-Fi processor's memory are elsewhere */
-static uint32_t wifi_avatrn;
-
 static struct block aoss = { "mailbox", 0x0c300000, 0x400 };
 #define QMP_MAGIC               0x00
 #define QMP_MAGIC_VALUE         0x4d41494c      /* "LIAM" */
@@ -4081,6 +4084,13 @@ hakios_wifi_radio_address(uint8_t *address)
 	bool good;
 
 	if (!PE_parse_boot_arg_str("wifi_mac", text, sizeof(text)) || text[0] == 0) {
+		if (wifi_avatrn) {
+			static const uint8_t made_up[6] = { 0x02, 0x00, 0x00, 0x41, 0x56, 0x01 };
+
+			memcpy(address, made_up, sizeof(made_up));
+			printf("wifi: %u: avatrn: no wifi_mac given: a made-up, locally administered address\n", step);
+			return true;
+		}
 		printf("wifi: %u: the driver asks for the radio's address: none was given (wifi_mac)\n", step);
 		return false;
 	}
@@ -4335,12 +4345,16 @@ hakios_wifi_init(void)
 	thread_t thread;
 
 	PE_parse_boot_argn("wifi_step", &last_step, sizeof(last_step));
-	if (PE_parse_boot_argn("wifi_avatrn", &wifi_avatrn, sizeof(wifi_avatrn)) && wifi_avatrn) {
+	if (PE_parse_boot_argn("wifi", &on, sizeof(on)) && on == 2) {
+		wifi_avatrn = 1;                /* wifi=2: avatrn's, all of it (as wifi=1 elsewhere) */
+		on = 1;
+	}
+	if (wifi_avatrn || (PE_parse_boot_argn("wifi_avatrn", &wifi_avatrn, sizeof(wifi_avatrn)) && wifi_avatrn)) {
 		ipcc.phys = 0x0ed18000;         /* dt: qcom,ipcc@ed18000 */
 		rsc.phys = 0x17a20000;          /* dt: rsc@17a00000 "apps_rsc", drv-2 */
 		wpss_memory = 0x85300000u;
 	}
-	if (last_step == 0 && (!PE_parse_boot_argn("wifi", &on, sizeof(on)) || on == 0)) {
+	if (last_step == 0 && on == 0 && (!PE_parse_boot_argn("wifi", &on, sizeof(on)) || on == 0)) {
 		return;
 	}
 	if (last_step == 0 && on != 1) {
