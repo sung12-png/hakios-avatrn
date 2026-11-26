@@ -28,14 +28,14 @@ The window server draws by the GPU through Mesa; reported a lot smoother, with s
 (500 MHz, CPUs at top speed). Added to the boot arguments above:
 
     adreno=21 adreno_keep=1 adreno_pause=10 gpu_soc=sm7435 adreno_speed=3
-    cpufreq=1 soc_epss=0x17d91000 epss_cores=4 soc_rsc=0x17a20000 glfetch=0
+    cpufreq=1 soc_epss=0x17d91000 epss_cores=4 soc_rsc=0x17a20000
 
 (no gpu_delay: the GPU has to be there before the first program; gl=0: software drawing again).
-glfetch=0 keeps EXT_shader_framebuffer_fetch from CoreAnimation: with it, icons and widgets showed
-small pieces missing or added (Podcasts, Reminders, the Notes widget). Without it they were clean, at
-a similar speed. FD_MESA_DEBUG=flush also cured them, slowly; sysmem, noubwc, nolrz, inorder did not.
-The flush before the first framebuffer-reading draw (freedreno-darwin.patch) is evidently not enough
-on this GPU; that is not fixed, only avoided.
+Not fixed: icons and widgets show small pieces missing or added. FD_MESA_DEBUG=flush cured them,
+slowly (sysmem, noubwc, nolrz, inorder did not). glfetch=0 (no EXT_shader_framebuffer_fetch for
+CoreAnimation) cured them too, but then the text of "slide to power off" flashes as a solid blue
+rectangle, so it is not used. The flush before the first framebuffer-reading draw
+(freedreno-darwin.patch) is evidently not enough on this GPU.
 adreno_speed 1, 2, 3 = 295, 345, 500 MHz (4 = 600, not verified); see Thermals. Kernel also needs CONFIG_HAKIOS_ADRENO=y.
 
 The RAM image needs, besides the above:
