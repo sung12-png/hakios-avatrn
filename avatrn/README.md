@@ -86,6 +86,9 @@ works the percentage out from the voltage: an estimate (58-60% shown where recov
     battery_no_charger=1: the firmware said "charging" all the time with a current of 0; not passed on.
 
 ## Date
+Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
+could be picked. The RAM image's etc/rc.jobs now runs /usr/libexec/tzinit (Apple's own, in the system
+image); Chicago was then found and set.
 The firmware's clock does not keep time here (no boot-epoch: Darwin starts in 1969), and the PMK8350's
 clock is a bare counter that runs while the phone is off. Two ways, used together or alone:
 - rtc_offset=N (hakios.avatrn_buttons.c, needs buttons=1): N = the computer's `date +%s` minus
@@ -99,6 +102,8 @@ the kernel never hears of it (this is how rtc_offset= went missing). repack.py n
 kernel.ver entry (59 characters of hakios_kver=) and refuses a line over 506.
 
 ## Keyboard (libnodictation)
+A program has the fix only if the kernel's list names it: Settings' keyboard froze until Preferences and
+the other applications with keyboards were added (the list is past 512 characters: the buffer is 1024).
 With no dictation service running, the keyboard was told over and over that dictation's availability had
 changed, and SpringBoard did nothing else for minutes: no touch or button was answered. Found by sampling
 its main thread. userland/src/nodictation.c ignores those two calls; search was then typed in on the phone.

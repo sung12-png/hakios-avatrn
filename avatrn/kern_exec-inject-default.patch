@@ -6,8 +6,8 @@
   */
 -static char exec_inject_conf[512];
 +/* AVATRN: init cannot read its inject.conf after switching to the flash root; start with its contents */
-+static char exec_inject_conf[512] =
-+    "/redwood/lib/libhakios.dylib backboardd containermanagerd containermanagerd_system;/redwood/lib/libhakios.sb.dylib SpringBoard;/redwood/lib/libhakios.media.dylib mediaserverd;/redwood/lib/libhakios.app.dylib Sileo;/redwood/lib/libhakios.tweaks.dylib Preferences;/redwood/lib/libnodictation.dylib SpringBoard Spotlight MobileNotes MobileSMS MobileSafari";
++static char exec_inject_conf[1024] =
++    "/redwood/lib/libhakios.dylib backboardd containermanagerd containermanagerd_system;/redwood/lib/libhakios.sb.dylib SpringBoard;/redwood/lib/libhakios.media.dylib mediaserverd;/redwood/lib/libhakios.app.dylib Sileo;/redwood/lib/libhakios.tweaks.dylib Preferences;/redwood/lib/libnodictation.dylib SpringBoard Spotlight MobileNotes MobileSMS MobileSafari Preferences MobileCal MobileMail Reminders Contacts MobilePhone Maps AppStore Music Podcasts News Weather Stocks Books Files MobileSlideShow MobileStore MobileTimer Shortcuts Health Home Freeform VoiceMemos SafariViewService MailCompositionService MessagesViewService";
  SYSCTL_STRING(_kern, OID_AUTO, exec_inject, CTLFLAG_RW | CTLFLAG_LOCKED, exec_inject_conf, sizeof(exec_inject_conf),
      "LIBRARY NAME... [; LIBRARY NAME...]: programs started with the library inserted");
  
