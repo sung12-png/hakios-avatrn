@@ -35,7 +35,6 @@
 !/sysimage/
 !/xnu/
 !/xnu-deps/
-!/prebuilt/
 !/wifi/
 !/nura/
 /nura/out-local/

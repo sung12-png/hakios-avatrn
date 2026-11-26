@@ -33,7 +33,6 @@ Linux 电脑上的 QEMU（`virt`，aarch64）里运行，不需要任何 Apple �
 - 内核：对 Apple 开源 XNU 的补丁（`xnu/hakios.patch`，APSL 2.0）和我的驱动文件（`xnu/files/`、`drivers/`），
   由 `xnu/apply.sh` 叠加到一份新克隆上；
 - 引导程序（`xnuloader/`）、我的程序和库（`userland/src/`）、工具（`tools/`）、构建和运行脚本；
-- `prebuilt/`：用本仓库构建出的内核、引导程序和库；
 - `devices/redwood/`：一台手机所需的东西（UEFI 移植、设备树、固件脚本）。
 
 永远不会有的东西：
@@ -134,7 +133,6 @@ make images       # 用户空间和镜像
 | `tools/` | APFS、固件、QMI 测试、运行脚本 |
 | `qemu/` | 在 QEMU 中运行 |
 | `docs/` | `cellular.md`：蜂窝网络（英文）；`ru/`：详细的俄文开发日志 |
-| `prebuilt/` | 构建好的内核、引导程序、库 |
 
 ## 许可与法律
 

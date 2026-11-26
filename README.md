@@ -13,23 +13,31 @@ QEMU with nothing of Apple's and nothing of any phone's (`make qemu-open`).
 **Documentation: [docs/](docs/index.md)**, also on the project's website (`hakios-web`). Start with [Getting started](docs/getting-started/index.md), [Port a device](docs/porting/index.md) or the
 [Architecture](docs/concepts/architecture.md).
 
-## What works
+## What works on the Motorola Edge 2024
 
-| | POCO X5 Pro 5G (`redwood`) | QEMU `virt` |
-|---|---|---|
-| Lock screen, home screen, Control Center, the stock apps | yes | yes (slow: the CPU is emulated) |
-| Touch, multitouch, buttons | yes | yes |
-| All 8 CPU cores, the big one at 2.4 GHz | yes | no |
-| GPU rendering on Adreno (OpenGL ES through Mesa) | yes | no |
-| Speakers, microphone, the battery's level | yes | sound only |
-| Wi-Fi, cameras, vibration | yes | network only |
-| `/private/var` kept across reboots, Sileo, SSH | yes | no |
-| Metal | partly: a device Metal loads; buffers and libraries; nothing drawn yet | partly |
-| Cellular | partly: the modem is up, the SIM bound, the network seen; no registration yet | no |
-| Bluetooth, charging under this kernel, Apple's services | no | no |
+This fork's state, as seen on one phone (XT2405, SM7435, Android 16 based firmware). It is an experiment, not a
+usable system. **Running it can lose data or damage hardware; you alone carry that risk.**
 
-Every part, as each device's own `device.conf` records it: [Devices](docs/devices/index.md). The rows about the lock screen and the
-apps describe what happens when you add layer 2 below yourself.
+| Motorola Edge 2024 (`avatrn`) | State |
+|---|---|
+| Lock screen, home screen, stock apps | yes; opening Files > Safari and Settings > Notifications crashes |
+| Touch and buttons | yes |
+| All 8 CPU cores, thermal limits | yes |
+| GPU (Adreno 710, OpenGL ES through Mesa) at 600 MHz | yes; not a steady 60 fps |
+| Saving `/private/var` across reboots | yes |
+| Sound from both speakers | yes without Wi-Fi; silent in the Wi-Fi images |
+| Battery level and charging | yes with a wall charger; a computer's port is too weak |
+| Date and time zone | yes |
+| Wi-Fi | partly: joins WPA2 networks from Settings and loads a page; Safari freezes on the next and Wi-Fi drops |
+| Brightness, sleep and wake, microphone, headphones, vibration, flashlight | no |
+| Bluetooth, cellular, cameras, Apple's services | no |
+
+Boot is by `fastboot boot` (RAM) with the system on the phone's `userdata`, which **erases Android's data**.
+How it is built: [avatrn/README.md](avatrn/README.md). The upstream project's own results are for the POCO X5 Pro 5G:
+see [oosexgang/hakios-xnu-kernel](https://github.com/oosexgang/hakios-xnu-kernel). The rest of this README is upstream's.
+
+**No ready-made images are offered.** A bootable image contains Apple's files and the phone maker's firmware, which
+nobody here may pass on: each user builds their own from their own copies.
 
 ## The three layers
 
@@ -86,8 +94,8 @@ XNU's `options` and `conf/files`), so a device's defconfig builds exactly the dr
 ## What is in the repository, and what never is
 
 In it: only our own code and data: the patch to Apple's open-source XNU (`xnu/hakios.patch`, APSL 2.0) and our files, the boot
-loader, our programs and libraries, the tools, `prebuilt/` (built from this source; the loader **without** any Apple data:
-`make loader` makes the one that starts Darwin, on your machine, from your own IPSW), and the device and SoC directories.
+loader, our programs and libraries, the tools, and the device and SoC directories. This fork carries no built files: `make loader` and `make kernel`
+build them on your machine (the loader that starts Darwin from your own IPSW).
 
 Never in it: any file of Darwin (you build the system image on your machine from an IPSW you get yourself and hand to
 `sysimage/unpack.sh`; nothing is downloaded for you, decrypted or circumvented); the phone's firmware (pulled from your own phone into

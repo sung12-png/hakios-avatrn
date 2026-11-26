@@ -14,9 +14,16 @@ In the repository:
   such drivers for other phones. They are needed only to rebuild the UEFI image; they can be removed and
   extracted by each user from their own phone's firmware with UEFIReader.
 
-- the FocalTech touch firmware, drivers/input/hakios.focaltech_fw.h: the touch vendor's;
-  generated from a device blob, redistribution terms "to verify" (THIRD_PARTY_LICENSES.md).
-
+- rafsanbasunia/ios-garnet (github.com/rafsanbasunia/ios-garnet, commit 3fa923f): the Motorola's audio DSP,
+  speaker and sound drivers (drivers/audio/hakios.avatrn_adsp.c, hakios.avatrn_speaker.c,
+  hakios.avatrn_sound.c) are its drivers with changes for this phone, its declarations are in
+  xnu/files/bsd/sys/hakios.audio.h, and its 64 MB device-mapping area is the idea of a later change. Those
+  files are a derivative of XNU under the Apple Public Source License 2.0, as the upstream they come from is.
+- JosephMontfort's garnet port (same SoC): register offsets and the order of the Adreno 710's setup in
+  drivers/gpu/hakios.adreno.c.
+- Mu-Silicium (Project Silicium and contributors): devices/avatrn/uefi/ holds patches and platform files
+  against it; their license applies to the derived parts (BSD-2-Clause-Patent). The phone's own UEFI drivers
+  are not included.
 - the Wi-Fi driver: Linux's ath11k (BSD-3-Clause-Clear) and FreeBSD's LinuxKPI headers (BSD-2-Clause) are
   fetched by tools/mk-ath11k.sh at pinned releases and built on our layer wifi/lx (MIT); only the layer is here.
 

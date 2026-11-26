@@ -1036,7 +1036,12 @@ focaltech_write(uint8_t address, const uint8_t *data, uint32_t length)
 #define FTS_ROMBOOT_CMD_START_APP       0x08
 #define FTS_FLASH_PACKET_LENGTH         32		/* bytes per PRAM write */
 
-#include "hakios.focaltech_fw.h"
+/*
+ * The FocalTech FT3680's firmware (upstream: hakios.focaltech_fw.h) is its maker's and is not carried here. A chip
+ * already running is used as it is; one waiting in its boot ROM is not loaded.
+ */
+static const unsigned char focaltech_fw[1];
+static const uint32_t focaltech_fw_length = 0;
 
 /*
  * Vendor fts_read_bootid(): send { 0x55, 0xAA } as a 2-byte framed write (treated as a write of
@@ -1161,8 +1166,15 @@ focaltech_probe(bool verbose)
 		return false;
 	}
 
-	printf("focaltech: downloading %u bytes of firmware to PRAM...\n", FOCALTECH_FW_LENGTH);
-	if (!focaltech_write_pram(focaltech_fw, FOCALTECH_FW_LENGTH)) {
+	if (focaltech_fw_length == 0) {
+		if (verbose) {
+			printf("focaltech: the chip wants its firmware, and this build carries none\n");
+		}
+		return false;
+	}
+
+	printf("focaltech: downloading %u bytes of firmware to PRAM...\n", focaltech_fw_length);
+	if (!focaltech_write_pram(focaltech_fw, focaltech_fw_length)) {
 		printf("focaltech: PRAM download failed\n");
 		return false;
 	}

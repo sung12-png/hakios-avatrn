@@ -43,4 +43,4 @@ not in the report.
 The head of each driver says what was checked about it (compiled, run in QEMU, run on the phone) and what is a guess.
 
 The kernel is built from the C and C++ files only; the drivers need no files that are not in this repository,
-except the touch firmware header (`input/hakios.focaltech_fw.h`), which `tools/provenance.allow` marks as pending.
+No firmware is compiled into a driver.

@@ -49,9 +49,6 @@ program that can write to flash, and CI fails if one appears that is not listed.
   device layer under `devices/`. These are licensed under the MIT License (`LICENSE`).
 - **Third-party open-source components** that are redistributed or fetched at build time, each
   under its own license. They are listed with origin and license in `THIRD_PARTY_LICENSES.md`.
-- **Pre-built artifacts** in `prebuilt/`: the kernel, user-space programs and libraries built
-  from this repository's own source. They carry the same licenses as the source they are built
-  from.
 
 ## What this repository does NOT contain and never distributes
 

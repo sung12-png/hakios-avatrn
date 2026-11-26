@@ -18,8 +18,7 @@ publishes under the APSL 2.0. The full text is in `LICENSE.APSL`. The obligation
 - **Marking modifications (APSL 2.2).** Changes are described in the patch and in the commit
   history; the project's own files are named `hakios.<thing>.c` so that what is ours is
   distinguishable from Apple's original code.
-- **Executable distribution (APSL 2.3(c)).** Where a built kernel is distributed (`prebuilt/`),
-  the corresponding source is in the same repository, and this file points at it.
+- **Executable distribution (APSL 2.3(c)).** This fork distributes no built kernel.
 - **No re-licensing.** The XNU-derived code stays under the APSL; it is **not** relabeled MIT. The
   MIT License in `LICENSE` applies only to our own non-XNU code.
 
@@ -48,10 +47,6 @@ These are flagged for review and are **not** asserted to be settled:
   with UEFIReader. Whether redistributing them is permitted has not been confirmed with the
   vendor; a user who is unsure should delete them and extract their own. Tracked in
   `THIRD_PARTY_LICENSES.md`.
-- **The FocalTech touch-controller firmware header** (`drivers/input/hakios.focaltech_fw.h`)
-  is generated from a firmware blob on the device. Its redistribution terms are the touch
-  vendor's and have not been confirmed; it is a candidate for moving to the pull-from-device
-  model the rest of the firmware already uses.
 - **Mu-Silicium / Project Mu** derived files under `devices/redwood/uefi/` carry upstream
   BSD-2-Clause-Patent and GPL-2.0-or-MIT headers; the derived parts keep those licenses.
 
