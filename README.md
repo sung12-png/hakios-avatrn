@@ -25,10 +25,10 @@ usable system. **Running it can lose data or damage hardware; you alone carry th
 | All 8 CPU cores, thermal limits | yes |
 | GPU (Adreno 710, OpenGL ES through Mesa) at 600 MHz | yes; not a steady 60 fps |
 | Saving `/private/var` across reboots | yes |
-| Sound from both speakers | yes without Wi-Fi; silent in the Wi-Fi images |
+| Sound from both speakers | yes |
 | Battery level and charging | yes with a wall charger; a computer's port is too weak |
 | Date and time zone | yes |
-| Wi-Fi | partly: joins WPA2 networks from Settings and loads a page; Safari freezes on the next and Wi-Fi drops |
+| Wi-Fi | yes: WPA2 networks joined from Settings, Safari browses, YouTube plays; no radio interrupts yet |
 | Brightness, sleep and wake, microphone, headphones, vibration, flashlight | no |
 | Bluetooth, cellular, cameras, Apple's services | no |
 
