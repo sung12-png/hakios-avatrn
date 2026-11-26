@@ -100,18 +100,17 @@ limits what they get; sound_below= is eighths of a dB under Android's level (96:
 Steps to look with, without iOS: speaker_probe=2, adsp_step=14 (tone, amplifiers off), =15 (audible, 2 s).
 Not done: microphones, the earpiece as its own route, headphones, Bluetooth, calls.
 
-## Wi-Fi (first pages load; Safari freezes on others)
-Inside iOS: wifi=2 (avatrn's settings, no interrupts, a made-up address unless wifi_mac=). The RAM image needs
-the radio's files in fw/, and in LaunchDaemons/ com.hakios.wifi.plist and Apple's com.apple.wifid.plist with
-_LimitLoadToDeviceTree removed (init binds this directory over the system's, so a job not in it does not run).
-Seen on the phone: apple.com loaded in Safari.
-
-WCN6750, as on redwood. Kernel: tools/mk-ath11k.sh, then once built tools/mk-wlfw.sh, CONFIG_HAKIOS_WIFI and
-_QMI. wifi_avatrn=1: avatrn's IPCC (0xed18000), RPMh sequencer (0x17a20000), Wi-Fi memory (0x85300000) and
-file names; the small image's fw/ needs wpss.mdt, wpss.bNN, regdb.bin and bdwlan.elf.avatrn.epa from the
-modem partition (the vendor's: never commit them). Seen on the phone with wifi_step=15 wifi_lx=2 wifi_smmu=2
-wifi_mac=...: ath11k up ("unified ready"), 2.4/5/6 GHz, US rules, and down again. wifi_lx=1 writes no
-registers, so it ends with "failed to connect to HTC" and the firmware crashing: that is the dry run.
+## Wi-Fi (works: Safari browses, YouTube plays)
+Inside iOS: wifi=2 (avatrn's settings, no interrupts, a made-up address unless wifi_mac=). Wait for the tick in
+Settings before browsing. The RAM image needs:
+- the radio's files in fw/ (wpss.mdt, wpss.bNN, regdb.bin, bdwlan.elf.avatrn.epa);
+- in LaunchDaemons/, com.hakios.wifi.plist and Apple's com.apple.wifid.plist with _LimitLoadToDeviceTree removed
+  (init binds this directory over the system's, so a job not in it does not run);
+- for Safari not to freeze on the second page: com.apple.Safari.History and webbookmarksd, which are in Apple's
+  App cryptex (the 10 MB image in the IPSW), not in the system volume. Here they go in the RAM image's libexec/
+  and their jobs' Program is changed to /redwood/libexec/NAME. Apple's files: never commit them.
+Appending the whole App cryptex to the RAM image made a boot image the loader did not start (about 67 MB
+unpacked). Not done: the radio's interrupts (its rings are polled every 100 ms).
 
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
