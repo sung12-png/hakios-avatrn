@@ -4050,11 +4050,14 @@ hakios_wifi_dsp_is_up(void)
 const uint8_t *
 hakios_wifi_driver_file(const char *name, uint64_t *size)
 {
-	static const char *const files[][2] = { { "board.bin", "bd_m20gl.elf" }, { "regdb.bin", "regdb_xiaomi.bin" } };
+	static const char *const redwood_files[][2] = { { "board.bin", "bd_m20gl.elf" }, { "regdb.bin", "regdb_xiaomi.bin" } };
+	/* avatrn: the Motorola's, as its modem partition names them */
+	static const char *const avatrn_files[][2] = { { "board.bin", "bdwlan.elf.avatrn.epa" }, { "regdb.bin", "regdb.bin" } };
+	const char *const (*files)[2] = wifi_avatrn ? avatrn_files : redwood_files;
 	const char *last = strrchr(name, '/');
 
 	last = last == NULL ? name : last + 1;
-	for (unsigned i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+	for (unsigned i = 0; i < 2; i++) {
 		if (strcmp(last, files[i][0]) == 0) {
 			return image_file(files[i][1], size);
 		}
