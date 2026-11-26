@@ -2941,17 +2941,19 @@ hakios_adsp_gpr_events(hakios_gpr_events_t handler)
 #define BATTMGR_BATTERY_GET     0x30
 #define BATTMGR_USB_GET         0x32
 #define BATTMGR_USB_SET         0x33
+/* avatrn: Linux's numbers (qcom_battmgr.c), seen on the phone: 12 was 3200 (32.00 C), 15 the 239 cycles;
+ * garnet's firmware has them one further on */
 #define BATT_STATUS             0               /* Linux's POWER_SUPPLY_STATUS_*: 1 charging, 2 discharging, 3 not charging, 4 full */
 #define BATT_HEALTH             1
 #define BATT_PRESENT            2
 #define BATT_CAPACITY           4
 #define BATT_VOLT_NOW           7
 #define BATT_CURR_NOW           9
-#define BATT_TEMP               13              /* hundredths of a degree: 3900 when Android says 39.0 */
-#define BATT_CHG_COUNTER        15              /* the charge in the battery now, mAh on this firmware */
-#define BATT_CYCLE_COUNT        16
-#define BATT_CHG_FULL_DESIGN    17              /* 5000000 uAh */
-#define BATT_CHG_FULL           18              /* the full charge as the fuel gauge has learnt it, uAh */
+#define BATT_TEMP               12              /* hundredths of a degree: 3900 when Android says 39.0 */
+#define BATT_CHG_COUNTER        14              /* the charge in the battery now, mAh on this firmware */
+#define BATT_CYCLE_COUNT        15
+#define BATT_CHG_FULL_DESIGN    16              /* 5000000 uAh */
+#define BATT_CHG_FULL           17              /* the full charge as the fuel gauge has learnt it, uAh */
 #define USB_VOLT_NOW            1               /* uV */
 #define USB_CURR_NOW            3               /* uA, what the port gives */
 #define USB_INPUT_LIMIT         5               /* uA: the most the charger takes from the port */
