@@ -3544,10 +3544,12 @@ step_apr(void)
 #define PARAM_ID_RSC_HW_CORE            0x08001032u
 #define PRM_HW_CORE_LPASS               1
 #define PRM_HW_CORE_DCODEC              2
-#define PRM_CLK_QUIN_TDM_IBIT           0x208
+/* avatrn: I2S, not TDM -- Android's backend MI2S-LPAIF_VA-RX-PRIMARY, 48 kHz, 32 bits, 2 channels (dt:
+ * quin_mi2s_pinctrl, lpi_i2s1_*); the bit clock is Linux's Q6PRM_LPASS_CLK_ID_QUI_MI2S_IBIT (q6prm.h) */
+#define PRM_CLK_QUIN_MI2S_IBIT          0x10b
 #define PRM_CLK_ATTRIBUTE_COUPLE_NO     1
 #define PRM_CLK_ROOT_DEFAULT            0
-#define SPEAKER_TDM_HZ                  (96000u * 32 * 4)
+#define SPEAKER_BIT_HZ                  (48000u * 32 * 2)
 
 static struct block lpi = { "the island's pins", 0x03440000, 0x17000 };        /* dt: lpi_pinctrl@3440000, 23 pins, 4K each */
 static bool prm_core_voted[3], prm_clock_on;
@@ -3559,7 +3561,7 @@ static bool prm_core_voted[3], prm_clock_on;
  * it drives as a plain pin. Only with both of LPASS's votes held: without them these registers are not clocked.
  */
 #define SPEAKER_PIN_FIRST       6
-#define SPEAKER_PINS            4
+#define SPEAKER_PINS            3               /* avatrn: clock 6, word select 7, data 0 on 8; 9 is left as found */
 #define SPEAKER_PIN_ACTIVE      (2u << 2 | 3u << 6 | 1u << 9)
 static uint32_t speaker_pins_before[SPEAKER_PINS][2];
 static bool speaker_pins_set;
@@ -3625,16 +3627,16 @@ prm_core(uint32_t core, bool on)
 static bool
 prm_speaker_clock(bool on)
 {
-	uint32_t words[5] = { 1, PRM_CLK_QUIN_TDM_IBIT, SPEAKER_TDM_HZ, PRM_CLK_ATTRIBUTE_COUPLE_NO, PRM_CLK_ROOT_DEFAULT };
+	uint32_t words[5] = { 1, PRM_CLK_QUIN_MI2S_IBIT, SPEAKER_BIT_HZ, PRM_CLK_ATTRIBUTE_COUPLE_NO, PRM_CLK_ROOT_DEFAULT };
 	bool done;
 
 	if (!on) {
 		/* (a release names the clock alone) */
-		done = prm_ask(false, PARAM_ID_RSC_AUDIO_HW_CLK, words, 2, "the speakers' TDM bit clock");
+		done = prm_ask(false, PARAM_ID_RSC_AUDIO_HW_CLK, words, 2, "the speakers' I2S bit clock");
 		prm_clock_on = false;
 		return done;
 	}
-	done = prm_ask(true, PARAM_ID_RSC_AUDIO_HW_CLK, words, 5, "the speakers' TDM bit clock (12.288 MHz)");
+	done = prm_ask(true, PARAM_ID_RSC_AUDIO_HW_CLK, words, 5, "the speakers' I2S bit clock (3.072 MHz)");
 	prm_clock_on = done;
 	return done;
 }
@@ -3663,8 +3665,8 @@ step_prm(void)
 	if (!glink.channel[CHANNEL_GPR].open) {
 		return true;                    /* (a DSP of the older kind has no such manager: its clocks are the AFE's) */
 	}
-	announce("ask the DSP's resource manager for LPASS's two votes, give the island's pins 6 to 9 to the speakers' TDM "
-	    "interface, and ask for its bit clock");
+	announce("ask the DSP's resource manager for LPASS's two votes, give the island's pins 6 to 8 to the speakers' I2S "
+	    "interface");
 	if (!prm_core(PRM_HW_CORE_LPASS, true) || !prm_core(PRM_HW_CORE_DCODEC, true)) {
 		printf("adsp: %u: without both votes the island's registers are not read\n", step);
 		return false;
@@ -3719,7 +3721,7 @@ step_prm(void)
 #define MODULE_WR_SHARED_MEM_EP         0x07001000u
 #define MODULE_PCM_CNV                  0x07001003u
 #define MODULE_PCM_DEC                  0x07001005u
-#define MODULE_TDM_SINK                 0x0700100eu
+#define MODULE_TDM_SINK                 0x0700100au     /* avatrn: Linux's MODULE_ID_I2S_SINK (the names below stay) */
 #define PARAM_ID_PCM_OUTPUT_FORMAT      0x08001008u
 #define PARAM_ID_HW_EP_MF_CFG           0x08001017u
 #define PARAM_ID_HW_EP_FRAME_SIZE       0x08001018u
@@ -3736,7 +3738,7 @@ step_prm(void)
 #define SPEAKER_PCM_DEC                 0x00006002u
 #define SPEAKER_PCM_CNV                 0x00006003u
 #define SPEAKER_TDM                     0x00006004u
-#define SPEAKER_HZ                      96000u
+#define SPEAKER_HZ                      48000u          /* avatrn */
 #define PORT_OUT                        1               /* a module's first output */
 #define PORT_IN                         2               /* a module's first input */
 
@@ -3891,7 +3893,7 @@ step_graph(void)
 	if (!glink.channel[CHANNEL_GPR].open) {
 		return true;                    /* (the older kind of DSP: its sound is hakios.sound.c's) */
 	}
-	announce("hand the DSP's audio framework a playback graph (our memory, a decoder, a converter, the island's TDM "
+	announce("hand the DSP's audio framework a playback graph (our memory, a decoder, a converter, the island's I2S "
 	    "interface), set its modules up, and have it prepared and started");
 	apm_begin(&w);
 	apm_parameter(&w, GPR_PORT_APM, APM_PARAM_ID_SUB_GRAPH_CONFIG);
@@ -3976,31 +3978,15 @@ step_graph(void)
 	apm_put(&w, 1);
 	apm_parameter_end(&w);
 	settings = apm_send(&w, APM_CMD_SET_CFG, "given the interface's frame size") && settings;
-	/* two that Android's calibration database gives this module, as it has them, before the interface's own */
+	/* avatrn: Linux's param_id_i2s_intf_cfg (audioreach.h): the island's interface (lpaif type 3, "VA"), the primary one;
+	 * data line 0; the word select ours */
 	apm_begin(&w);
-	apm_parameter(&w, SPEAKER_TDM, 0x0800106au);
-	apm_put(&w, 2);
-	apm_parameter_end(&w);
-	tdm = apm_send(&w, APM_CMD_SET_CFG, "given the interface's parameter 0x0800106a");
-	apm_begin(&w);
-	apm_parameter(&w, SPEAKER_TDM, 0x0800113cu);
+	apm_parameter(&w, SPEAKER_TDM, 0x08001019u);    /* PARAM_ID_I2S_INTF_CFG */
+	apm_put(&w, 3);
 	apm_put(&w, 0);
-	apm_put(&w, 0);
-	apm_put(&w, 4);
-	apm_put(&w, 0);
+	apm_put(&w, 1u | 1u << 16);                     /* I2S_SD0; CONFIG_I2S_WS_SRC_INTERNAL */
 	apm_parameter_end(&w);
-	tdm = apm_send(&w, APM_CMD_SET_CFG, "given the interface's parameter 0x0800113c") && tdm;
-	apm_begin(&w);
-	apm_parameter(&w, SPEAKER_TDM, PARAM_ID_TDM_INTF_CFG);
-	apm_put(&w, 3u | 0u << 16);                     /* the interface: the island's (kind 3), the primary one */
-	apm_put(&w, 0);                                 /* (Android's database has 2 here, which is refused; 0 is taken) */
-	apm_put(&w, 1u | 1u << 16);                     /* the sync is ours; the data line driven */
-	apm_put(&w, 3);                                 /* the slots in use: the first two */
-	apm_put(&w, 4u | 32u << 16);                    /* slots a frame; bits a slot */
-	apm_put(&w, 0);                                 /* the sync's kind; not inverted */
-	apm_put(&w, 1);                                 /* the data a bit after the sync */
-	apm_parameter_end(&w);
-	tdm = apm_send(&w, APM_CMD_SET_CFG, "given the interface's TDM settings") && tdm;
+	tdm = apm_send(&w, APM_CMD_SET_CFG, "given the interface's I2S settings");
 	settings = settings && tdm;
 	if (!settings) {
 		return false;
