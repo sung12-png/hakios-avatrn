@@ -100,6 +100,14 @@ limits what they get; sound_below= is eighths of a dB under Android's level (96:
 Steps to look with, without iOS: speaker_probe=2, adsp_step=14 (tone, amplifiers off), =15 (audible, 2 s).
 Not done: microphones, the earpiece as its own route, headphones, Bluetooth, calls.
 
+## Wi-Fi (not usable yet)
+WCN6750, as on redwood. Kernel: tools/mk-ath11k.sh, then once built tools/mk-wlfw.sh, CONFIG_HAKIOS_WIFI and
+_QMI. wifi_avatrn=1: avatrn's IPCC (0xed18000), RPMh sequencer (0x17a20000), Wi-Fi memory (0x85300000) and
+file names; the small image's fw/ needs wpss.mdt, wpss.bNN, regdb.bin and bdwlan.elf.avatrn.epa from the
+modem partition (the vendor's: never commit them). Seen on the phone with wifi_step=15 wifi_lx=2 wifi_smmu=2
+wifi_mac=...: ath11k up ("unified ready"), 2.4/5/6 GHz, US rules, and down again. wifi_lx=1 writes no
+registers, so it ends with "failed to connect to HTC" and the firmware crashing: that is the dry run.
+
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
 could be picked. The RAM image's etc/rc.jobs now runs /usr/libexec/tzinit (Apple's own, in the system

@@ -673,12 +673,13 @@ say_heard(struct lx_radio *radio)
 		/* (the network that is wanted is the user's own: its name is not said even here) */
 		wanted = radio->want_length != 0 && network->name_length == radio->want_length &&
 		    memcmp(network->name, radio->want, radio->want_length) == 0;
-		/* (nor is its address said: the BSSID of the user's own access point says where the user is) */
-		snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x", network->sender[0], network->sender[1],
-		    network->sender[2], network->sender[3], network->sender[4], network->sender[5]);
-		printf("lx: heard: channel %3u (%u MHz) %4d dBm  %s  %s, %u times  \"%s\"\n", channel,
-		    network->frequency, network->signal, wanted ? "xx:xx:xx:xx:xx:xx" : address, !(network->capability & 0x10) ? "open" :
-		    network->protected ? "RSN" : "protected", network->times, wanted ? "(the network that is wanted)" : name);
+		/* (no network is named here, neither by name nor by address: on a phone with no way to hand the log over, it is
+		 * photographed, and the neighbours' names and addresses say where one is) */
+		(void)address;
+		(void)name;
+		printf("lx: heard: channel %3u (%u MHz) %4d dBm  %s, %u times%s\n", channel, network->frequency, network->signal,
+		    !(network->capability & 0x10) ? "open" : network->protected ? "RSN" : "protected", network->times,
+		    wanted ? "  (the network that is wanted)" : "");
 	}
 	for (unsigned channel = 0; channel < nitems(on_channel); channel++) {
 		if (on_channel[channel] != 0) {
