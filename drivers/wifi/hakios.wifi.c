@@ -814,6 +814,9 @@ step_smem(void)
  * is. A message is text; it goes into our mailbox behind its length, the doorbell is rung, and
  * the always-on processor has taken it when the length reads zero.
  */
+/* avatrn (SM7435): boot-arg wifi_avatrn=1 -- its IPCC, RPMh sequencer and Wi-Fi processor's memory are elsewhere */
+static uint32_t wifi_avatrn;
+
 static struct block aoss = { "mailbox", 0x0c300000, 0x400 };
 #define QMP_MAGIC               0x00
 #define QMP_MAGIC_VALUE         0x4d41494c      /* "LIAM" */
@@ -1157,6 +1160,10 @@ spmi_read(int channel, uint8_t reg, uint8_t *bytes, uint32_t count)
 static bool
 step_rails(void)
 {
+	if (wifi_avatrn) {
+		printf("wifi: %u: avatrn: skipped (another phone's power chips and pins)\n", step);
+		return true;
+	}
 	uint32_t version;
 
 	announce("map the PMIC arbiter (0xc440000, 0xc40a000, 0xe600000; the buttons' driver reads through it too) and read "
@@ -1253,6 +1260,10 @@ static struct block tlmm = { "tlmm", 0x0f100000 + 0x1000 * FIRST_PIN, 0x3000 }; 
 static bool
 step_pins(void)
 {
+	if (wifi_avatrn) {
+		printf("wifi: %u: avatrn: skipped (another phone's power chips and pins)\n", step);
+		return true;
+	}
 	static const struct {
 		unsigned pin;
 		const char *what;
@@ -1273,7 +1284,10 @@ step_pins(void)
 /* ---- step 6: the firmware ------------------------------------------------------------------------------ */
 
 #define PAS_WPSS                6               /* dt: qcom,pas-id of qcom,wpss@8a00000 */
-#define WPSS_MEMORY             0x9ae00000u     /* dt: reserved-memory wlan@9ae00000, that node's memory-region */
+/* dt: reserved-memory wlan@9ae00000, that node's memory-region; avatrn (boot-arg wifi_avatrn=1): wpss_region@85300000,
+ * the same size */
+static uint32_t wpss_memory = 0x9ae00000u;
+#define WPSS_MEMORY             wpss_memory
 #define WPSS_MEMORY_SIZE        0x01900000u
 
 extern dev_t mdevlookup(int devid);
@@ -4318,6 +4332,11 @@ hakios_wifi_init(void)
 	thread_t thread;
 
 	PE_parse_boot_argn("wifi_step", &last_step, sizeof(last_step));
+	if (PE_parse_boot_argn("wifi_avatrn", &wifi_avatrn, sizeof(wifi_avatrn)) && wifi_avatrn) {
+		ipcc.phys = 0x0ed18000;         /* dt: qcom,ipcc@ed18000 */
+		rsc.phys = 0x17a20000;          /* dt: rsc@17a00000 "apps_rsc", drv-2 */
+		wpss_memory = 0x85300000u;
+	}
 	if (last_step == 0 && (!PE_parse_boot_argn("wifi", &on, sizeof(on)) || on == 0)) {
 		return;
 	}
