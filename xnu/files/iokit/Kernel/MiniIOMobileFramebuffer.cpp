@@ -10,6 +10,8 @@
  * user-space side of Darwin userland 16.5. Everything not implemented is logged once.
  */
 
+#include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
 #include <IOKit/IOKitKeys.h>
@@ -206,6 +208,16 @@ measurePanel(__unused void * arg, __unused wait_result_t wr)
 	uint32_t on, first, second;
 
 	IOSleep(60000);
+	{
+		/* AVATRN: DSI0 (dt: qcom,mdss_dsi_ctrl0@ae94000), read only: is the panel's link in video or command mode, as the
+		 * boot loader left it (offsets: Linux dsi.xml.h with the 6G shift, as iOSPlus10's NegroniBacklight.cpp, MIT) */
+		volatile uint32_t *dsi = (volatile uint32_t *)ml_io_map(0x0ae94000UL, 0x4000);
+		uint32_t version = dsi[0x000 / 4], ctrl = dsi[0x004 / 4], status = dsi[0x008 / 4];
+
+		IOLog("MiniIOMobileFramebuffer: the panel: DSI0 version %#x, ctrl %#x (%s%s%s), status %#x, command DMA ctrl %#x, "
+		    "trigger %#x\n", version, ctrl, (ctrl & 1) ? "on" : "OFF", (ctrl & 2) ? ", VIDEO mode" : "",
+		    (ctrl & 4) ? ", COMMAND mode" : "", status, dsi[0x03c / 4], dsi[0x084 / 4]);
+	}
 	intf = ml_io_map(DPU_INTF1_PAGE, 0x4000) + DPU_INTF1_OFFSET;
 	on = *(volatile uint32_t *)(intf + INTF_TIMING_ENGINE_EN);
 	first = *(volatile uint32_t *)(intf + INTF_FRAME_COUNT);
@@ -213,6 +225,233 @@ measurePanel(__unused void * arg, __unused wait_result_t wr)
 	second = *(volatile uint32_t *)(intf + INTF_FRAME_COUNT);
 	IOLog("MiniIOMobileFramebuffer: the panel: DSI interface's timing engine %s, %u refreshes in one second "
 	    "(frames are made at %u a second: fb_hz)\n", (on & 1) ? "on" : "OFF", second - first, refreshHz());
+}
+
+/*
+ * AVATRN: a DCS command to the panel (here 0x51, set display brightness, two bytes, high first) through DSI0's command
+ * DMA from its FIFO, as iOSPlus10's NegroniBacklight.cpp does it (github.com/akshaynexus/iOSPlus10, MIT, Copyright (c)
+ * 2026 iOSPlus10 contributors) for a command-mode panel. avatrn's panels are video-mode, so the trigger is given just
+ * after a frame's active picture ended (the VIDEO_DONE status), for the command to go into the blanking. Every
+ * register is put back. Seen on the phone: the end of the frame seen, the command sent, the panel dimmed and back.
+ */
+#define AVBL_STATUS             0x008
+#define AVBL_CMD_DMA_CTRL       0x03c
+#define AVBL_DMA_CMD_LENGTH     0x04c
+#define AVBL_TRIG_CTRL          0x084
+#define AVBL_SW_TRIGGER         0x090
+#define AVBL_INT_CTRL           0x110
+#define AVBL_TPG_CTRL           0x15c
+#define AVBL_TPG_FIFO           0x17c
+#define AVBL_TPG_FIFO_RESET     0x1ec
+#define AVBL_DMA_BUSY           (1u << 1)
+#define AVBL_INT_DMA_DONE       (1u << 0)
+#define AVBL_INT_VIDEO_DONE     (1u << 16)
+#define AVBL_INT_ENABLES        0xaaaaaaaau
+
+static int
+avatrnBrightness(volatile uint32_t *d, uint32_t level)
+{
+	const uint32_t words[2] = { 1u << 31 | 1u << 30 | 0x39u << 16 | 3u,
+		                    0x51u | ((level >> 8) & 0xff) << 8 | (level & 0xff) << 16 };
+	uint32_t tpg, dma, trig, interrupts, i;
+	bool frame_seen = false, done = false;
+
+	for (i = 0; i < 250 && (d[AVBL_STATUS / 4] & AVBL_DMA_BUSY); i++) {
+		IODelay(20);
+	}
+	if (d[AVBL_STATUS / 4] & AVBL_DMA_BUSY) {
+		IOLog("MiniIOMobileFramebuffer: the panel: bl: a command of someone else's is still under way: nothing written\n");
+		return -2;
+	}
+	tpg = d[AVBL_TPG_CTRL / 4];
+	dma = d[AVBL_CMD_DMA_CTRL / 4];
+	trig = d[AVBL_TRIG_CTRL / 4];
+	interrupts = d[AVBL_INT_CTRL / 4] & AVBL_INT_ENABLES;
+	d[AVBL_TRIG_CTRL / 4] = (trig & ~0xfu) | 4u;                    /* the DMA starts on a software trigger */
+	d[AVBL_INT_CTRL / 4] = interrupts | (AVBL_INT_VIDEO_DONE << 1) | AVBL_INT_DMA_DONE;
+	d[AVBL_TPG_CTRL / 4] = 3u << 16 | 1u << 2 | 1u << 1;            /* the command comes from the FIFO */
+	d[AVBL_TPG_FIFO / 4] = words[0];
+	d[AVBL_TPG_FIFO / 4] = words[1];
+	d[AVBL_CMD_DMA_CTRL / 4] = (dma & ~(1u << 31 | 1u << 30 | 1u << 26)) | 1u << 28;        /* embedded, high speed */
+	d[AVBL_DMA_CMD_LENGTH / 4] = 8;
+	/* the end of a frame's picture */
+	d[AVBL_INT_CTRL / 4] = interrupts | (AVBL_INT_VIDEO_DONE << 1) | AVBL_INT_VIDEO_DONE;
+	for (i = 0; i < 6000 && !frame_seen; i++) {                      /* 30 ms */
+		frame_seen = (d[AVBL_INT_CTRL / 4] & AVBL_INT_VIDEO_DONE) != 0;
+		if (!frame_seen) {
+			IODelay(5);
+		}
+	}
+	__builtin_arm_dsb(0xf);
+	d[AVBL_SW_TRIGGER / 4] = 1;
+	__builtin_arm_dsb(0xf);
+	for (i = 0; i < 1250 && !done; i++) {                            /* 25 ms */
+		done = (d[AVBL_INT_CTRL / 4] & AVBL_INT_DMA_DONE) != 0;
+		if (!done) {
+			IODelay(20);
+		}
+	}
+	d[AVBL_INT_CTRL / 4] = interrupts | AVBL_INT_DMA_DONE | AVBL_INT_VIDEO_DONE;
+	d[AVBL_TPG_CTRL / 4] = 0;
+	d[AVBL_TPG_FIFO_RESET / 4] = 1;
+	__builtin_arm_dsb(0xf);
+	IODelay(1);
+	d[AVBL_TPG_FIFO_RESET / 4] = 0;
+	d[AVBL_TPG_CTRL / 4] = tpg;
+	d[AVBL_CMD_DMA_CTRL / 4] = dma;
+	d[AVBL_TRIG_CTRL / 4] = trig;
+	__builtin_arm_dsb(0xf);
+	if (!done || !frame_seen) IOLog("MiniIOMobileFramebuffer: the panel: bl: level %u: frame end %s, command %s (status %#x)\n", level,
+	    frame_seen ? "seen" : "NOT seen", done ? "SENT" : "NOT done", d[AVBL_STATUS / 4]);
+	return done ? 0 : -3;
+}
+
+/*
+ * AVATRN: the panel's brightness, for iOS's slider. On where the boot-args say gpu_soc=sm7435 (backlight=0: off;
+ * backlight=1: on). CoreBrightness (in backboardd) finds the
+ * service by {backlight-control: true} and a class named AppleARMBacklight, reads IODisplayParameters
+ * {brightness {min, max, value}} and sets "brightness" (a level in min..max), as iOSPlus10's NegroniBacklight.cpp
+ * found (MIT, Copyright (c) 2026 iOSPlus10 contributors); this is a smaller service of our own on that. Writes are
+ * made from its own timer, the latest level only, at most one every 30 ms. A level is never below BL_MIN: nothing
+ * here turns the screen off (that is sleep and wake, not yet done). The top is boot-arg backlight_max (2047; the
+ * panel takes 4095).
+ */
+#define BL_MIN                  8u
+#define BL_FAILURES             3
+
+class AppleARMBacklight : public IOService
+{
+	OSDeclareDefaultStructors(AppleARMBacklight);
+
+	IOTimerEventSource *    fTimer;
+	volatile uint32_t *     fDsi;
+	volatile uint32_t       fWanted;
+	uint32_t                fSent, fMax, fFailures, fSaid;
+
+	static void timerFired(OSObject * owner, IOTimerEventSource * timer);
+	void publish(uint32_t level);
+
+public:
+	bool startBacklight(volatile uint32_t * dsi);
+	virtual IOReturn setProperties(OSObject * properties) APPLE_KEXT_OVERRIDE;
+};
+
+OSDefineMetaClassAndStructors(AppleARMBacklight, IOService);
+
+void
+AppleARMBacklight::publish(uint32_t level)
+{
+	OSDictionary * brightness = OSDictionary::withCapacity(3), * parameters = OSDictionary::withCapacity(1);
+	const struct { const char * key; uint32_t value; } fields[] = { { "min", 0 }, { "max", fMax }, { "value", level } };
+
+	if (brightness != NULL && parameters != NULL) {
+		for (unsigned i = 0; i < 3; i++) {
+			OSNumber * number = OSNumber::withNumber(fields[i].value, 32);
+
+			if (number != NULL) {
+				brightness->setObject(fields[i].key, number);
+				number->release();
+			}
+		}
+		parameters->setObject("brightness", brightness);
+		setProperty("IODisplayParameters", parameters);
+	}
+	OSSafeReleaseNULL(brightness);
+	OSSafeReleaseNULL(parameters);
+}
+
+void
+AppleARMBacklight::timerFired(OSObject * owner, IOTimerEventSource * timer)
+{
+	AppleARMBacklight * self = (AppleARMBacklight *) owner;
+	uint32_t level = self->fWanted;
+
+	if (level != self->fSent && self->fFailures < BL_FAILURES) {
+		if (avatrnBrightness(self->fDsi, level) == 0) {
+			self->fSent = level;
+			self->fFailures = 0;
+		} else if (++self->fFailures == BL_FAILURES) {
+			IOLog("MiniIOMobileFramebuffer: the panel: bl: three commands in a row failed: no more are sent\n");
+		}
+		if (self->fWanted != level || self->fSent != level) {
+			timer->setTimeoutMS(30);
+		}
+	}
+}
+
+IOReturn
+AppleARMBacklight::setProperties(OSObject * properties)
+{
+	OSDictionary * dictionary = OSDynamicCast(OSDictionary, properties);
+	OSNumber * number = dictionary ? OSDynamicCast(OSNumber, dictionary->getObject("brightness")) : NULL;
+	uint32_t level;
+
+	if (number == NULL) {
+		if (dictionary != NULL && fSaid < 12) {
+			fSaid++;
+			IOLog("MiniIOMobileFramebuffer: the panel: bl: a setting without \"brightness\" (%u keys)\n", dictionary->getCount());
+		}
+		return dictionary ? kIOReturnSuccess : kIOReturnBadArgument;
+	}
+	level = (int32_t) number->unsigned32BitValue() < 0 ? 0 : number->unsigned32BitValue();
+	level = level > fMax ? fMax : level < BL_MIN ? BL_MIN : level;
+	if (fSaid < 12) {
+		fSaid++;
+		IOLog("MiniIOMobileFramebuffer: the panel: bl: iOS asks for %d of %u (call %u): %u\n",
+		    (int32_t) number->unsigned32BitValue(), fMax, fSaid, level);
+	}
+	fWanted = level;
+	publish(level);
+	fTimer->setTimeoutMS(1);
+	return kIOReturnSuccess;
+}
+
+bool
+AppleARMBacklight::startBacklight(volatile uint32_t * dsi)
+{
+	IOWorkLoop * loop = IOWorkLoop::workLoop();
+	uint32_t max = 2047;
+
+	PE_parse_boot_argn("backlight_max", &max, sizeof(max));
+	fMax = max < 64 ? 64 : max > 4095 ? 4095 : max;
+	fDsi = dsi;
+	fTimer = IOTimerEventSource::timerEventSource(this, &AppleARMBacklight::timerFired);
+	if (loop == NULL || fTimer == NULL || loop->addEventSource(fTimer) != kIOReturnSuccess) {
+		return false;
+	}
+	/* (the startup level, the device tree's default; nothing is written until iOS asks for another) */
+	fWanted = fSent = fMax < 0x6dd ? fMax : 0x6dd;
+	setProperty("backlight-control", true);
+	publish(fWanted);
+	registerService();
+	IOLog("MiniIOMobileFramebuffer: the panel: bl: the backlight is offered to iOS, 0..%u, now %u\n", fMax, fWanted);
+	return true;
+}
+
+static void
+avatrnBacklightAttach(IOService * provider)
+{
+	uint32_t on = 0;
+	volatile uint32_t * dsi;
+	AppleARMBacklight * backlight;
+
+	char soc[16] = "";
+
+	if (!PE_parse_boot_argn("backlight", &on, sizeof(on))) {
+		on = PE_parse_boot_arg_str("gpu_soc", soc, sizeof(soc)) && strcmp(soc, "sm7435") == 0;
+	}
+	if (on == 0) {
+		return;
+	}
+	dsi = (volatile uint32_t *) ml_io_map(0x0ae94000UL, 0x4000);
+	if ((dsi[0] >> 28) != 2 || (dsi[1] & 0x7u) != 0x7u) {
+		IOLog("MiniIOMobileFramebuffer: the panel: bl: DSI0 is not as expected (%#x, %#x): no backlight\n", dsi[0], dsi[1]);
+		return;
+	}
+	backlight = OSTypeAlloc(AppleARMBacklight);
+	if (backlight == NULL || !backlight->init() || !backlight->attach(provider) || !backlight->startBacklight(dsi)) {
+		IOLog("MiniIOMobileFramebuffer: the panel: bl: no backlight service\n");
+	}
 }
 
 static inline uint32_t
@@ -515,6 +754,7 @@ IOMobileFramebuffer::start(IOService * provider)
 	publishModes();
 	setName("disp0");
 	registerService();
+	avatrnBacklightAttach(this);
 	return true;
 }
 

@@ -24,6 +24,9 @@ In the repository:
 - Mu-Silicium (Project Silicium and contributors): devices/avatrn/uefi/ holds patches and platform files
   against it; their license applies to the derived parts (BSD-2-Clause-Patent). The phone's own UEFI drivers
   are not included.
+- iOSPlus10 (github.com/akshaynexus/iOSPlus10), MIT License (LICENSE.iOSPlus10): how a DCS command is sent through
+  DSI0 and what CoreBrightness wants of a backlight service, in the panel brightness code of
+  xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp.
 - the Wi-Fi driver: Linux's ath11k (BSD-3-Clause-Clear) and FreeBSD's LinuxKPI headers (BSD-2-Clause) are
   fetched by tools/mk-ath11k.sh at pinned releases and built on our layer wifi/lx (MIT); only the layer is here.
 
