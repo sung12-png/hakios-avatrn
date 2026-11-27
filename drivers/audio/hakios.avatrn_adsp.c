@@ -3077,6 +3077,50 @@ battmgr_port(uint32_t usb_type)
 	    before, ma * 1000, taken ? "taken" : "NOT TAKEN", after);
 }
 
+/*
+ * AVATRN: a battery nearly empty and still draining. The phone switches off by itself before the battery does it for us
+ * in the middle of a write: at or below boot-arg battery_off percent (3; 0: never) with current going out, three
+ * readings in a row over 20 s at least, the file systems are written out (HFS's journal, and DKIOCSYNCHRONIZE to the
+ * UFS) and PSCI SYSTEM_OFF is asked for. A computer's USB port that cannot keep up counts as draining.
+ */
+static void
+avatrn_battery_guard(uint32_t hundredths, int32_t current_ua, bool present)
+{
+	extern int sync_internal(void);
+	extern void psci_smp_system_off(void);
+	extern void IOSleep(unsigned milliseconds);
+	static uint32_t percent = 3, readings;
+	static uint64_t first;
+	static bool asked;
+	uint64_t now = mach_absolute_time(), twenty;
+
+	if (!asked) {
+		asked = true;
+		PE_parse_boot_argn("battery_off", &percent, sizeof(percent));
+	}
+	if (percent == 0 || !present || current_ua >= 0 || hundredths > percent * 100) {
+		readings = 0;
+		return;
+	}
+	if (readings++ == 0) {
+		first = now;
+	}
+	nanoseconds_to_absolutetime(20ULL * 1000000000ULL, &twenty);
+	printf("battery: %u.%02u%% and draining (%d uA): switching off at %u%% or less (reading %u)\n", hundredths / 100,
+	    hundredths % 100, (int)current_ua, percent, readings);
+	if (readings < 3 || now - first < twenty) {
+		return;
+	}
+	printf("battery: empty enough: writing the file systems out and switching the phone off\n");
+	(void)sync_internal();
+	IOSleep(3000);
+	(void)sync_internal();
+	IOSleep(1000);
+	psci_smp_system_off();
+	printf("battery: the firmware did not switch the phone off\n");
+	readings = 0;
+}
+
 static void
 battmgr_thread(__unused void *parameter, __unused wait_result_t result)
 {
@@ -3158,6 +3202,7 @@ battmgr_thread(__unused void *parameter, __unused wait_result_t result)
 			b.usb_voltage_uv = (int32_t)usb_volt;
 			b.usb_current_ua = (int32_t)usb_curr;
 			hakios_battery_report(&b);
+			avatrn_battery_guard(capacity, (int32_t)curr, present != 0);
 		}
 		if (round < 3 || round % 6 == 0 || !good) {
 			tell("adsp: battmgr: %s capacity %u (hundredths of a percent), status %u, present %u, %d uV, %d uA, temperature %d "

@@ -384,4 +384,16 @@ psci_smp_stop_here(void)
 	}
 }
 
+/*
+ * AVATRN: the phone switched off through the firmware (PSCI SYSTEM_OFF), for a battery nearly empty
+ * (drivers/audio/hakios.avatrn_adsp.c, which has written the file systems out before). Returns only if it was refused.
+ */
+void psci_smp_system_off(void);
+
+void
+psci_smp_system_off(void)
+{
+	(void)psci_call(0x84000008u, 0, 0, 0);
+}
+
 #endif /* defined(GENERIC_PSCI_SMP) */

@@ -134,6 +134,11 @@ those icons with Core Graphics instead; it is linked into libnodictation.dylib t
 UIKit -framework CoreGraphics userland/src/nodictation.c userland/src/appicons.m`.
 Still open: Files > Safari stops itself ("cannot create a new browser dataSource without a source").
 
+## Low battery
+With the battery read through the audio DSP (adsp_battery=1), a battery at boot-arg battery_off percent or less (3; 0:
+never) that is still draining (three readings over 20 s) has the file systems written out and the phone switched off
+(PSCI SYSTEM_OFF). Seen on the phone with battery_off=100. iOS gives no warning first.
+
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
 could be picked. The RAM image's etc/rc.jobs now runs /usr/libexec/tzinit (Apple's own, in the system

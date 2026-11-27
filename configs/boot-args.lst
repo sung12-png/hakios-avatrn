@@ -61,6 +61,7 @@ backlight_max	k
 battery	kl
 battery_by_voltage	k
 battery_no_charger	k
+battery_off	k
 battery_shared_pa	k
 battery_stop	k
 battery_stop_poll	k
