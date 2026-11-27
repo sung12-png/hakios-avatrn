@@ -112,6 +112,10 @@ Settings before browsing. The RAM image needs:
 Appending the whole App cryptex to the RAM image made a boot image the loader did not start (about 67 MB
 unpacked). Not done: the radio's interrupts (its rings are polled every 100 ms).
 
+iOS's own auto-join does not work here (wifid knows the network and its password, but CoreWiFi's auto-join scan is
+refused before it reaches the driver). userland/src/autojoin.c asks wifid to join a saved network the way a tap in
+Settings does; build and sign it as its first comment says (tools/adhoc_sign.py: ldid's job, for hosts without it).
+
 With Wi-Fi and sound in one kernel the 8 MB XNU keeps for device register maps is too small (the speakers went
 silent): apply avatrn/io_map-64mb.patch to the XNU tree (xnu-src/xnu-8796.121.2, patch -p1) before building.
 
