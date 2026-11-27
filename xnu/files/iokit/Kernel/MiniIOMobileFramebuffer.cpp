@@ -312,8 +312,9 @@ avatrnBrightness(volatile uint32_t *d, uint32_t level)
  * service by {backlight-control: true} and a class named AppleARMBacklight, reads IODisplayParameters
  * {brightness {min, max, value}} and sets "brightness" (a level in min..max), as iOSPlus10's NegroniBacklight.cpp
  * found (MIT, Copyright (c) 2026 iOSPlus10 contributors); this is a smaller service of our own on that. Writes are
- * made from its own timer, the latest level only, at most one every 30 ms. A level is never below BL_MIN: nothing
- * here turns the screen off (that is sleep and wake, not yet done). The top is boot-arg backlight_max (2047; the
+ * made from its own timer, the latest level only, at most one every 30 ms. A level of iOS's is never below BL_MIN;
+ * off is only for the display turned off: iOS's RequestPowerChange(0) sends level 0 (the panel stays as it is, dark:
+ * no panel sleep, the SoC not asleep), RequestPowerChange(1) or the power button going down brings the level back. The top is boot-arg backlight_max (2047; the
  * panel takes 4095).
  */
 #define BL_MIN                  8u
@@ -326,6 +327,7 @@ class AppleARMBacklight : public IOService
 	IOTimerEventSource *    fTimer;
 	volatile uint32_t *     fDsi;
 	volatile uint32_t       fWanted;
+	volatile bool           fOff;
 	uint32_t                fSent, fMax, fFailures, fSaid;
 
 	static void timerFired(OSObject * owner, IOTimerEventSource * timer);
@@ -334,7 +336,35 @@ class AppleARMBacklight : public IOService
 public:
 	bool startBacklight(volatile uint32_t * dsi);
 	virtual IOReturn setProperties(OSObject * properties) APPLE_KEXT_OVERRIDE;
+	void display(bool on, const char * why);
 };
+
+static AppleARMBacklight * gBacklight;
+static uint32_t gDisplayChanges;
+
+void
+AppleARMBacklight::display(bool on, const char * why)
+{
+	if (fOff == !on) {
+		return;
+	}
+	fOff = !on;
+	if (gDisplayChanges++ < 16) {
+		IOLog("MiniIOMobileFramebuffer: the panel: bl: display %s (%s, change %u)\n", on ? "ON" : "OFF", why, gDisplayChanges);
+	}
+	fTimer->setTimeoutMS(1);
+}
+
+/* (also for drivers/input/hakios.avatrn_buttons.c: the power button always brings the picture back) */
+extern "C" void avatrn_backlight_display(bool on, const char * why);
+
+void
+avatrn_backlight_display(bool on, const char * why)
+{
+	if (gBacklight != NULL) {
+		gBacklight->display(on, why);
+	}
+}
 
 OSDefineMetaClassAndStructors(AppleARMBacklight, IOService);
 
@@ -364,7 +394,7 @@ void
 AppleARMBacklight::timerFired(OSObject * owner, IOTimerEventSource * timer)
 {
 	AppleARMBacklight * self = (AppleARMBacklight *) owner;
-	uint32_t level = self->fWanted;
+	uint32_t level = self->fOff ? 0 : self->fWanted;
 
 	if (level != self->fSent && self->fFailures < BL_FAILURES) {
 		if (avatrnBrightness(self->fDsi, level) == 0) {
@@ -373,7 +403,7 @@ AppleARMBacklight::timerFired(OSObject * owner, IOTimerEventSource * timer)
 		} else if (++self->fFailures == BL_FAILURES) {
 			IOLog("MiniIOMobileFramebuffer: the panel: bl: three commands in a row failed: no more are sent\n");
 		}
-		if (self->fWanted != level || self->fSent != level) {
+		if ((self->fOff ? 0 : self->fWanted) != level || self->fSent != level) {
 			timer->setTimeoutMS(30);
 		}
 	}
@@ -451,7 +481,9 @@ avatrnBacklightAttach(IOService * provider)
 	backlight = OSTypeAlloc(AppleARMBacklight);
 	if (backlight == NULL || !backlight->init() || !backlight->attach(provider) || !backlight->startBacklight(dsi)) {
 		IOLog("MiniIOMobileFramebuffer: the panel: bl: no backlight service\n");
+		return;
 	}
+	gBacklight = backlight;
 }
 
 static inline uint32_t
@@ -1699,8 +1731,13 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
 	case kFBMethodSwapSignal:
 	case kFBMethodSwapCancel:
 	case kFBMethodSwapCancelAll:
-	case kFBMethodRequestPowerChange:
 	case kFBMethodChangeFrameInfo:
+		return kIOReturnSuccess;
+
+	case kFBMethodRequestPowerChange:               /* in: 0 off, 1 on */
+		if (args->scalarInputCount >= 1) {
+			avatrn_backlight_display(args->scalarInput[0] != 0, "iOS");
+		}
 		return kIOReturnSuccess;
 
 	case kFBMethodNotifications:                    /* in: callback (0 = off), its argument, type, 0 */

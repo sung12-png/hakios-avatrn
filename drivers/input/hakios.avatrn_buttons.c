@@ -322,6 +322,12 @@ button_look(struct button *b, bool pressed)
 		return;
 	}
 	b->down = pressed;
+	if (pressed && b == &power) {
+		/* (iokit/Kernel/MiniIOMobileFramebuffer.cpp: a screen turned off comes back at once, whatever iOS does) */
+		extern void avatrn_backlight_display(bool on, const char *why);
+
+		avatrn_backlight_display(true, "the power button");
+	}
 	now_text(when, sizeof(when), now);
 	if (pressed) {
 		b->since = now;

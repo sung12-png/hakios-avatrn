@@ -119,11 +119,12 @@ Settings does; build and sign it as its first comment says (tools/adhoc_sign.py:
 With Wi-Fi and sound in one kernel the 8 MB XNU keeps for device register maps is too small (the speakers went
 silent): apply avatrn/io_map-64mb.patch to the XNU tree (xnu-src/xnu-8796.121.2, patch -p1) before building.
 
-## Brightness (works: iOS's slider)
+## Brightness and sleep (work: iOS's slider; the power button darkens and restores)
 The panel (video mode, refreshing at 144 Hz while iOS makes 60 frames a second) takes DCS 0x51 over DSI0; the
 driver is in MiniIOMobileFramebuffer.cpp, after iOSPlus10's (MIT, see NOTICE). On with gpu_soc=sm7435; backlight=0
-turns it off, backlight_max=N sets the slider's top (2047 of the panel's 4095). It never turns the screen off: sleep
-and wake are not done. fb_measure=1 also says the panel link's mode and its refresh rate.
+turns it off, backlight_max=N sets the slider's top (2047 of the panel's 4095). The slider never turns the screen off. Display off
+(RequestPowerChange 0) sends level 0 and on, or the power button going down, restores it; the panel and the SoC are
+not put to sleep, so it saves the panel's power only. fb_measure=1 also says the panel link's mode and its refresh rate.
 
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
