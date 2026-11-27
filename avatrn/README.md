@@ -50,6 +50,26 @@ The RAM image needs, besides the above:
   add `--ld-path=/usr/bin/ld64.lld -mlinker-version=705` to its compile line (as mk-mesa.sh does).
   The one used here was compiled by hand that way, after mkeagl.py made eagl_gen.h.
 
+## Metal (experimental, 2026-11-27: not in the everyday image)
+iOS draws through Metal on the Adreno 710 with ios-garnet's driver (hakios-metal, MIT) and its CoreAnimation
+plug-in (userland/src/HakiosMetalCA.m there), both from rafsanbasunia/ios-garnet at 3fa923f; neither is copied
+into this repository. What was seen on the phone:
+- a test program: the device is made, a buffer reads back, copy and fill are done by the GPU;
+- the window server alone given Metal, from an image that saves nothing: lock screen, home screen, page swipe
+  and Control Center draw, with short one-pixel black dashes in places (not yet cured). That the window server
+  really drew these frames through Metal, and not through OpenGL ES, has not been confirmed from a log.
+How it was built, on Linux:
+- a Mesa tree of its own with garnet's tools/mk-mesa.sh and tools/mesa (the ld64.lld linker lines added), then in
+  hakios-metal `make ios HAKIOS=<that tree> MESA=1`, and the plug-in linked as garnet's userland/build.sh does it
+  with METAL_PLUGIN=ca;
+- CoreAnimation's shader library: garnet's tools/ca-metallib.py on iOS 16.5's QuartzCore default.pipelinelib, with
+  CA_QC_METALLIB= a later QuartzCore default.metallib (here iPadOS 17.0.2's). Apple's file: never commit it.
+  It goes to /redwood/share/ca-share/ in the RAM image.
+Here: boot-arg metal=2 (the system volume has no link to the plug-in in /System/Library/Extensions, so the name
+published leads back to /redwood/lib/HakiosMetal.bundle) and ca_metallib=PATH (userland/src/inject.c).
+Boot arguments used: metal=2 ca_metallib=/redwood/share/ca-share/QuartzCore-default.metallib. The daily command line
+has no room left for them.
+
 ## Saving (/private/var kept between boots)
 Verified: dark mode and iOS's data are there after a restart. Add to the boot arguments:
 

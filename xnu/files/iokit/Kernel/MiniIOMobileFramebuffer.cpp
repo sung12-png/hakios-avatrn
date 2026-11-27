@@ -1875,9 +1875,11 @@ publishAccelerator(IOService * provider)
 		 * Metal for the screen; until that device can draw, a screen drawn without it is the working one.
 		 */
 		if (PE_parse_boot_argn("metal", &metal, sizeof(metal)) && metal != 0) {
-			accelerator->setProperty("MetalPluginName", "HakiosMetal");
+			/* AVATRN: metal=2: the system volume has no link to the bundle in /System/Library/Extensions; the name leads
+			 * from there back to the RAM image's own (/redwood/lib/HakiosMetal.bundle) */
+			accelerator->setProperty("MetalPluginName", metal == 2 ? "../../../redwood/lib/HakiosMetal" : "HakiosMetal");
 			accelerator->setProperty("MetalPluginClassName", "HakiosMetalDevice");
-			IOLog("MiniIOMobileFramebuffer: metal=1: the accelerator names HakiosMetal as its Metal plug-in\n");
+			IOLog("MiniIOMobileFramebuffer: metal=%u: the accelerator names HakiosMetal as its Metal plug-in\n", metal);
 		}
 		accelerator->registerService();
 	}
