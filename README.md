@@ -20,16 +20,19 @@ usable system. **Running it can lose data or damage hardware; you alone carry th
 
 | Motorola Edge 2024 (`avatrn`) | State |
 |---|---|
-| Lock screen, home screen, stock apps | yes; opening Files > Safari and Settings > Notifications crashes |
+| Lock screen, home screen, stock apps | yes; opening Files > Safari crashes |
 | Touch and buttons | yes |
 | All 8 CPU cores, thermal limits | yes |
-| GPU (Adreno 710, OpenGL ES through Mesa) at 600 MHz | yes; not a steady 60 fps |
+| GPU (Adreno 710, OpenGL ES through Mesa) at 600 MHz | yes; not a steady 60 fps (about 70% of frames on time) |
 | Saving `/private/var` across reboots | yes |
 | Sound from both speakers | yes |
 | Battery level and charging | yes with a wall charger; a computer's port is too weak |
 | Date and time zone | yes |
-| Wi-Fi | yes: WPA2 networks joined from Settings, Safari browses, YouTube plays; no radio interrupts yet |
-| Brightness, sleep and wake, microphone, headphones, vibration, flashlight | no |
+| Wi-Fi | yes: WPA2, joins a saved network by itself, Safari browses, YouTube plays; no radio interrupts yet |
+| Brightness | yes: iOS's slider |
+| Sleep and wake | partly: the power button darkens and restores the screen; nothing else sleeps |
+| Microphone, vibration, flashlight | no |
+| Headphones | no, not planned |
 | Bluetooth, cellular, cameras, Apple's services | no |
 
 Boot is by `fastboot boot` (RAM) with the system on the phone's `userdata`, which **erases Android's data**.
