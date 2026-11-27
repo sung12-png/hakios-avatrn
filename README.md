@@ -26,7 +26,7 @@ usable system. **Running it can lose data or damage hardware; you alone carry th
 | GPU (Adreno 710, OpenGL ES through Mesa) at 600 MHz | yes; not a steady 60 fps (about 70% of frames on time) |
 | Saving `/private/var` across reboots | yes |
 | Sound from both speakers | yes |
-| Battery level and charging | yes with a wall charger; a computer's port is too weak |
+| Battery level and charging | yes with a wall charger; a computer's port is too weak; switches off at 3% |
 | Date and time zone | yes |
 | Wi-Fi | yes: WPA2, joins a saved network by itself, Safari browses, YouTube plays; no radio interrupts yet |
 | Brightness | yes: iOS's slider |
