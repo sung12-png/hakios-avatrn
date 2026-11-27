@@ -20,7 +20,7 @@ usable system. **Running it can lose data or damage hardware; you alone carry th
 
 | Motorola Edge 2024 (`avatrn`) | State |
 |---|---|
-| Lock screen, home screen, stock apps | yes; opening Files > Safari crashes |
+| Lock screen, home screen, stock apps | yes; Files crashes when switching views with its bottom bar |
 | Touch and buttons | yes |
 | All 8 CPU cores, thermal limits | yes |
 | GPU (Adreno 710, OpenGL ES through Mesa) at 600 MHz | yes; not a steady 60 fps (about 70% of frames on time) |

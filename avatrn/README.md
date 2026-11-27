@@ -132,7 +132,8 @@ have no GL driver here, and kCIContextUseSoftwareRenderer is not honoured on tha
 those icons with Core Graphics instead; it is linked into libnodictation.dylib together with nodictation.c:
 `clang ... -fobjc-arc -dynamiclib -install_name /redwood/lib/libnodictation.dylib -framework Foundation -framework
 UIKit -framework CoreGraphics userland/src/nodictation.c userland/src/appicons.m`.
-Still open: Files > Safari stops itself ("cannot create a new browser dataSource without a source").
+Still open: Files stops itself when the view is switched with its bottom bar ("cannot create a new browser
+dataSource without a source", DOCBrowserNavigationDataSource.swift:819).
 
 ## Low battery
 With the battery read through the audio DSP (adsp_battery=1), a battery at boot-arg battery_off percent or less (3; 0:
