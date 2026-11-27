@@ -132,8 +132,13 @@ have no GL driver here, and kCIContextUseSoftwareRenderer is not honoured on tha
 those icons with Core Graphics instead; it is linked into libnodictation.dylib together with nodictation.c:
 `clang ... -fobjc-arc -dynamiclib -install_name /redwood/lib/libnodictation.dylib -framework Foundation -framework
 UIKit -framework CoreGraphics userland/src/nodictation.c userland/src/appicons.m`.
-Still open: Files stops itself when the view is switched with its bottom bar ("cannot create a new browser
-dataSource without a source", DOCBrowserNavigationDataSource.swift:819).
+## Files
+Files stopped itself when its view was switched: fileproviderd turned it away ("denying connection because the
+device is not set up") until Apple's setup assistant has run. userland/src/pastbuddy.c, inserted into fileproviderd
+(avatrn/kern_exec-inject-default.patch), sets FPDServer's _isPastBuddy byte before it is used:
+`clang ... -dynamiclib -install_name /redwood/lib/libpastbuddy.dylib userland/src/pastbuddy.c`.
+Seen on the phone: Files stays open. Still open: "On My iPhone" is offered in Browse > Edit but never appears; the
+LocalStorage extension is found and never started.
 
 ## Low battery
 With the battery read through the audio DSP (adsp_battery=1), a battery at boot-arg battery_off percent or less (3; 0:
