@@ -194,6 +194,17 @@ micros(uint64_t absolute)
  * does not come back with the phone's log), in a thread of its own; off by default.
  */
 static TUNABLE(uint32_t, gMeasure, "fb_measure", 0);
+/*
+ * AVATRN: frames written to the panel's memory behind the line the panel is reading (no tearing; boot-arg fb_beam=0: not),
+ * ported from rafsanbasunia/ios-garnet 3fa923f. 2: also where the line counter counts otherwise than a line a count.
+ * fb_beam_mark=1: a square near the top says whether it is on (green; blue: on the other counting; red: refused).
+ */
+static TUNABLE(uint32_t, gBeam, "fb_beam", 1);
+static TUNABLE(uint32_t, gBeamMark, "fb_beam_mark", 0);
+static uint32_t gBeamColour;
+#define INTF_LINE_COUNT         0x0b0
+#define INTF_HSYNC_CTL          0x008
+#define INTF_VSYNC_PERIOD_F0    0x00c
 #define DPU_INTF1_PAGE          0x0ae34000UL            /* the 16 KB page INTF_1 is in */
 #define DPU_INTF1_OFFSET        0x2000
 #define INTF_TIMING_ENGINE_EN   0x000
@@ -607,6 +618,18 @@ public:
 	void reportFrameTimes(void);
 	void drawLayer(MiniIOSurface * s, const int32_t * src, const int32_t * dst);
 	void drawRows(const struct RowJob * job, int32_t y0, int32_t y1, uint32_t * blendRow);
+	/* fb_beam */
+	vm_offset_t     fBeamIntf;
+	uint32_t        fBeamLines, fBeamScale;
+	uint64_t        fBeamPeriod, fBeamScan, fBeamShare;
+	uint32_t        fStatScans, fStatScansMissed;
+	uint64_t        fStatShareTime[8];
+	uint32_t        fStatShares[8], fStatShareTorn[8], fStatShareClose[8];
+	static void beamProbeMain(void * self, wait_result_t result);
+	void beamProbe(void);
+	uint64_t beamNextScan(uint64_t now);
+	void beamWait(const struct RowJob * job, int32_t lastRow);
+	void beamShareDone(const struct RowJob * job, unsigned share, int32_t firstRow, int32_t lastRow, uint64_t began);
 	static void helperMain(void * self, wait_result_t result);
 	/* the scaling shared out (fb_threads): fThreads drawers, the presenter and fThreads - 1 helpers */
 	unsigned        fThreads;
@@ -716,6 +739,10 @@ IOMobileFramebuffer::start(IOService * provider)
 	thread_set_thread_name(thread, "frames to the panel");
 	thread_deallocate(thread);
 	fThreads = gThreads >= 1 && gThreads <= 8 ? gThreads : 1;
+	if (gBeam != 0 && kernel_thread_start(beamProbeMain, this, &thread) == KERN_SUCCESS) {
+		thread_set_thread_name(thread, "frames to the panel: the scan");
+		thread_deallocate(thread);
+	}
 	fHelperLock = IOLockAlloc();
 	for (unsigned i = 0; i + 1 < fThreads; i++) {
 		if (kernel_thread_start(&IOMobileFramebuffer::helperMain, this, &thread) != KERN_SUCCESS) {
@@ -935,7 +962,178 @@ struct RowJob {
 	int32_t         sx, sy, sw, sh, px0, py0, px1, py1, cx0, cx1;
 	int32_t         ry0, ry1;       /* the rows of the rectangle that are on the panel: all that is looked at, whatever its size */
 	bool            filter, unscaled;
+	uint64_t        scan;           /* fb_beam: when the scan that is to show the frame begins (0: write at once) */
 };
+
+/* fb_beam: whether the interface's counters count as they should, and how many lines and how long a scan is. */
+void
+IOMobileFramebuffer::beamProbeMain(void * self, wait_result_t result __unused)
+{
+	((IOMobileFramebuffer *) self)->beamProbe();
+}
+
+void
+IOMobileFramebuffer::beamProbe(void)
+{
+	vm_offset_t intf;
+	uint32_t first, frames, line, lines = 0, smallest = ~0u, hsync, frameLines, scale = 1;
+	uint64_t began, ended, until, started = mach_absolute_time();
+	char said[256];
+
+	/*
+	 * A few seconds in, not a minute: frames written before it are written whenever their beat comes, across the line
+	 * being read (torn). Its line is said again a minute in, where the phone's log keeps it.
+	 */
+	IOSleep(3000);
+	{
+		char soc[32] = "";
+
+		intf = PE_parse_boot_argn("gpu_soc", soc, sizeof(soc)) && strncmp(soc, "sm7435", 6) == 0 ?
+		    ml_io_map(DPU_INTF1_PAGE, 0x4000) + DPU_INTF1_OFFSET : 0;
+	}
+	if (intf == 0) {
+		IOLog("MiniIOMobileFramebuffer: fb_beam: no display interface known for this SoC (fb_intf=): frames stay on their beat\n");
+		return;
+	}
+	if (!(*(volatile uint32_t *)(intf + INTF_TIMING_ENGINE_EN) & 1)) {
+		IOLog("MiniIOMobileFramebuffer: fb_beam: the interface's timing engine is off: frames stay on their beat\n");
+		return;
+	}
+	/* a whole number of scans, from one frame's start to another's */
+	first = *(volatile uint32_t *)(intf + INTF_FRAME_COUNT);
+	nanoseconds_to_absolutetime(100 * NSEC_PER_MSEC, &until);
+	until += mach_absolute_time();
+	while (*(volatile uint32_t *)(intf + INTF_FRAME_COUNT) == first && mach_absolute_time() < until) {
+	}
+	began = mach_absolute_time();
+	first = *(volatile uint32_t *)(intf + INTF_FRAME_COUNT);
+	nanoseconds_to_absolutetime(50 * NSEC_PER_MSEC, &until);
+	until += began;
+	while (mach_absolute_time() < until) {
+		line = *(volatile uint32_t *)(intf + INTF_LINE_COUNT);
+		lines = line > lines ? line : lines;
+		smallest = line < smallest ? line : smallest;
+	}
+	IOSleep(450);
+	frames = *(volatile uint32_t *)(intf + INTF_FRAME_COUNT);
+	nanoseconds_to_absolutetime(100 * NSEC_PER_MSEC, &until);
+	until += mach_absolute_time();
+	while (*(volatile uint32_t *)(intf + INTF_FRAME_COUNT) == frames && mach_absolute_time() < until) {
+	}
+	ended = mach_absolute_time();
+	frames = *(volatile uint32_t *)(intf + INTF_FRAME_COUNT) - first;
+	/*
+	 * The interface's own frame, from its registers (INTF_VSYNC_PERIOD_F0 over the line's length in INTF_HSYNC_CTL). garnet's
+	 * line counter goes to 5504 in a frame of 2752 lines (the panel's 120 Hz timing, which its boot loader runs at 60 a
+	 * second): two counts a line. A counter whose top is a whole number of times the frame's lines counts in those parts
+	 * of a line; the rows are placed by it (fBeamScale). Started from Android, its boot loader leaves the same rate as
+	 * a frame of 5504 lines instead, the front porch stretched (one count a line): frames to four times the panel's
+	 * height are taken, the blanking counted before the first row as ever (later than it is: a margin).
+	 */
+	hsync = *(volatile uint32_t *)(intf + INTF_HSYNC_CTL) >> 16;
+	frameLines = hsync != 0 ? *(volatile uint32_t *)(intf + INTF_VSYNC_PERIOD_F0) / hsync : 0;
+	if (frameLines >= fPanelHeight && frameLines <= fPanelHeight * 4) {
+		uint32_t s = (lines + frameLines / 2) / frameLines;
+
+		if (s >= 1 && s <= 4 && lines + 2 * s >= s * frameLines && lines <= s * frameLines + 2 * s) {
+			scale = s;
+		}
+	}
+	if (frames == 0 || lines / scale < fPanelHeight || lines / scale > fPanelHeight * 4 || smallest > fPanelHeight / 4) {
+		gBeamColour = 0xffff0000;
+		snprintf(said, sizeof(said), "the interface's counters do not count as they should (%u frames, lines %u to %u, "
+		    "a frame of %u lines): frames stay on their beat", frames, smallest, lines, frameLines);
+	} else if ((scale != 1 || lines > fPanelHeight * 2) && gBeam != 2) {
+		gBeamColour = 0xffff0000;
+		/*
+		 * garnet's two layouts (two counts a line, or the stretched frame): written behind the scan so, the picture
+		 * flickered whenever it changed (17 November, seen on the phone; fb_beam=0 did not). Where the scan really is
+		 * in such a frame is not known well enough: frames stay on their beat unless fb_beam=2 asks for it.
+		 */
+		snprintf(said, sizeof(said), "a scan of %u counts (%u a line, a frame of %u lines): frames stay on their beat "
+		    "(fb_beam=2 writes them behind it)", lines + 1, scale, frameLines);
+	} else {
+		gBeamColour = scale != 1 || lines > fPanelHeight * 2 ? 0xff0000ff : 0xff00ff00;
+		fBeamLines = lines + 1;
+		fBeamScale = scale;
+		fBeamPeriod = (ended - began) / frames;
+		absolutetime_to_nanoseconds(fBeamPeriod, &began);
+		snprintf(said, sizeof(said), "the panel's scan is %u counts (%u a line, a frame of %u lines), %llu us: frames are "
+		    "written behind it from now on", fBeamLines, fBeamScale, frameLines, began / NSEC_PER_USEC);
+		__atomic_thread_fence(__ATOMIC_RELEASE);
+		fBeamIntf = intf;
+	}
+	IOLog("MiniIOMobileFramebuffer: fb_beam: %s\n", said);
+	absolutetime_to_nanoseconds(mach_absolute_time() - started, &until);
+	if (until < 62 * NSEC_PER_SEC) {
+		IOSleep((uint32_t) ((62 * NSEC_PER_SEC - until) / NSEC_PER_MSEC));
+	}
+	IOLog("MiniIOMobileFramebuffer: fb_beam (said at %u s): %s\n", 3, said);
+}
+
+/* When the next scan the frame can be whole for begins: the first share has to be written before that scan reaches it. */
+uint64_t
+IOMobileFramebuffer::beamNextScan(uint64_t now)
+{
+	uint32_t line = *(volatile uint32_t *)(fBeamIntf + INTF_LINE_COUNT);
+	uint64_t scan = now - fBeamPeriod * (line < fBeamLines ? line : fBeamLines - 1) / fBeamLines + fBeamPeriod;
+	/*
+	 * The first share is written from its top down about as fast as the scan reads it, so it may begin just before the
+	 * scan does: by what it takes longer than the scan takes over the same rows, and a little. (Its whole time as a
+	 * margin lost a frame in eight: each too late for one scan waits for the next, and all behind it with it.)
+	 */
+	uint64_t over = fThreads != 0 ? fBeamPeriod / fThreads : 0;
+	uint64_t margin = (fBeamShare > over ? fBeamShare - over : 0) + fBeamPeriod / 16;
+	bool missed = false;
+
+	if (now + margin > scan) {
+		scan += fBeamPeriod;
+		missed = true;
+	}
+	/* (one frame a scan: the last frame's scan has its own) */
+	while (fBeamScan != 0 && scan < fBeamScan + fBeamPeriod / 2) {
+		scan += fBeamPeriod;
+	}
+	fStatScans++;
+	fStatScansMissed += missed;
+	return scan;
+}
+
+/* fb_beam: a share of the rows that ends at lastRow waits for the scan before the frame's to have passed it. */
+void
+IOMobileFramebuffer::beamWait(const struct RowJob * job, int32_t lastRow)
+{
+	if (job->scan != 0) {
+		/* (the lines of the blanking are counted before the first row, as far as one can tell: taken as a margin either way) */
+		uint64_t lines = (uint64_t) lastRow * fBeamScale + (fBeamLines - fPanelHeight * fBeamScale);
+		uint64_t passed = job->scan - fBeamPeriod + fBeamPeriod * lines / fBeamLines;
+
+		if (mach_absolute_time() < passed) {
+			clock_delay_until(passed);
+		}
+	}
+}
+
+/* fb_beam: what a share of the rows did against the scan it is for (a frame torn at the share's edge is seen here, not in a screenshot). */
+void
+IOMobileFramebuffer::beamShareDone(const struct RowJob * job, unsigned share, int32_t firstRow, int32_t lastRow, uint64_t began)
+{
+	uint64_t now = mach_absolute_time();
+
+	__atomic_fetch_add(&fStatShareTime[share], now - began, __ATOMIC_RELAXED);
+	__atomic_fetch_add(&fStatShares[share], 1, __ATOMIC_RELAXED);
+	if (job->scan != 0) {
+		uint64_t blank = fBeamLines - fPanelHeight * fBeamScale;
+		uint64_t top = job->scan + fBeamPeriod * ((uint64_t) firstRow * fBeamScale + blank) / fBeamLines;
+		uint64_t bottom = job->scan + fBeamPeriod * ((uint64_t) lastRow * fBeamScale + blank) / fBeamLines;
+
+		if (began > top || now > bottom) {
+			__atomic_fetch_add(&fStatShareTorn[share], 1, __ATOMIC_RELAXED);
+		} else if (now > top) {
+			__atomic_fetch_add(&fStatShareClose[share], 1, __ATOMIC_RELAXED);
+		}
+	}
+}
 
 void
 IOMobileFramebuffer::drawRows(const RowJob * job, int32_t y0, int32_t y1, uint32_t * blendRow)
@@ -1042,7 +1240,13 @@ IOMobileFramebuffer::helperMain(void * self, wait_result_t result __unused)
 		y0 = job->ry0 + (int32_t) ((int64_t) rows * (index + 1) / fb->fThreads);
 		y1 = job->ry0 + (int32_t) ((int64_t) rows * (index + 2) / fb->fThreads);
 		blend = fb->fHelperBlend[index];
-		fb->drawRows(job, y0, y1, blend);
+		fb->beamWait(job, y1);
+		{
+			uint64_t began = mach_absolute_time();
+
+			fb->drawRows(job, y0, y1, blend);
+			fb->beamShareDone(job, index + 1, y0, y1, began);
+		}
 		IOLockLock(fb->fHelperLock);
 		fb->fHelpersBusy--;
 		if (fb->fHelpersBusy == 0) {
@@ -1169,6 +1373,7 @@ IOMobileFramebuffer::drawLayer(MiniIOSurface * s, const int32_t * src, const int
 	job.ry1 = py1 > (int32_t) fPanelHeight ? (int32_t) fPanelHeight : py1;
 	job.filter = filter;
 	job.unscaled = px1 - px0 == sw && py1 - py0 == sh && px0 >= 0 && (uint32_t) px1 <= fPanelWidth;
+	job.scan = fBeamScan;
 	if (fThreads <= 1 || fDiff || fHelpersStarted + 1 < fThreads) {
 		drawRows(&job, job.ry0, job.ry1, fBlendRow);
 		return;
@@ -1180,7 +1385,17 @@ IOMobileFramebuffer::drawLayer(MiniIOSurface * s, const int32_t * src, const int
 	fHelperGeneration++;
 	IOLockWakeup(fHelperLock, &fHelperGeneration, false);
 	IOLockUnlock(fHelperLock);
-	drawRows(&job, job.ry0, job.ry0 + (int32_t) ((int64_t) (job.ry1 - job.ry0) / fThreads), fBlendRow);
+	{
+		int32_t last = job.ry0 + (int32_t) ((int64_t) (job.ry1 - job.ry0) / fThreads);
+		uint64_t wrote;
+
+		beamWait(&job, last);
+		wrote = mach_absolute_time();
+		drawRows(&job, job.ry0, last, fBlendRow);
+		beamShareDone(&job, 0, job.ry0, last, wrote);
+		wrote = mach_absolute_time() - wrote;
+		fBeamShare += (int64_t) (wrote - fBeamShare) / 8;
+	}
 	IOLockLock(fHelperLock);
 	while (fHelpersBusy != 0) {
 		IOLockSleep(fHelperLock, &fHelpersBusy, THREAD_UNINT);
@@ -1314,7 +1529,10 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
 	}
 	fStatWaiting += mach_absolute_time() - began;
 	began = ready = mach_absolute_time();
-	if (gOnTheBeat) {
+	fBeamScan = fBeamIntf != 0 ? beamNextScan(began) : 0;
+	if (fBeamIntf != 0) {
+		fStatOnBeat++;
+	} else if (gOnTheBeat) {
 		uint64_t period, aim, next;
 
 		nanoseconds_to_absolutetime(NSEC_PER_SEC / refreshHz(), &period);
@@ -1408,6 +1626,15 @@ IOMobileFramebuffer::show(const uint8_t * swap, MiniIOSurface ** surfaces)
 			drawLayer(s, src, dst);
 			if (layer == 0) {
 				recorded = s;   /* (recorded once the frame is in the panel's memory: see below) */
+			}
+		}
+	}
+	if (gBeamMark != 0 && gBeamColour != 0 && fGraphics && fPanelWidth >= 400) {
+		for (uint32_t y = 40; y < 64; y++) {
+			uint32_t * to = (uint32_t *) (fBase + (size_t) y * fRowBytes);
+
+			for (uint32_t x = 300; x < 324; x++) {
+				to[x] = gBeamColour;
 			}
 		}
 	}

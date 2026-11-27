@@ -28,7 +28,8 @@ In the repository:
   DSI0 and what CoreBrightness wants of a backlight service, in the panel brightness code of
   xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp.
 - ios-garnet (github.com/rafsanbasunia/ios-garnet, commit 3fa923f), under that repository's licences: the answer to
-  CoreAnimation's search for default.metallib (boot-arg ca_metallib=) in userland/src/inject.c.
+  CoreAnimation's search for default.metallib (boot-arg ca_metallib=) in userland/src/inject.c, and the writing of frames
+  behind the panel's scan (fb_beam) in xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp.
 - the Wi-Fi driver: Linux's ath11k (BSD-3-Clause-Clear) and FreeBSD's LinuxKPI headers (BSD-2-Clause) are
   fetched by tools/mk-ath11k.sh at pinned releases and built on our layer wifi/lx (MIT); only the layer is here.
 

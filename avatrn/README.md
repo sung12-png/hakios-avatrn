@@ -50,6 +50,13 @@ The RAM image needs, besides the above:
   add `--ld-path=/usr/bin/ld64.lld -mlinker-version=705` to its compile line (as mk-mesa.sh does).
   The one used here was compiled by hand that way, after mkeagl.py made eagl_gen.h.
 
+## Tearing (cured, 2026-11-27)
+Moving icons and the opening app's window came apart in two pieces on every image: frames were copied into the memory
+the panel was reading. ios-garnet's fb_beam (3fa923f), ported: each share of the rows waits until the panel's scan has
+passed it (INTF_1 at 0x0ae36000, as on garnet). On by default with gpu_soc=sm7435; fb_beam=0 turns it off,
+fb_beam_mark=1 shows a square saying whether it is on (it flickers by its nature). Seen on the phone: tearing gone,
+and it feels a bit smoother (not measured).
+
 ## Metal (experimental, 2026-11-27: not in the everyday image)
 iOS draws through Metal on the Adreno 710 with ios-garnet's driver (hakios-metal, MIT) and its CoreAnimation
 plug-in (userland/src/HakiosMetalCA.m there), both from rafsanbasunia/ios-garnet at 3fa923f; neither is copied
