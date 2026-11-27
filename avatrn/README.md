@@ -126,6 +126,14 @@ turns it off, backlight_max=N sets the slider's top (2047 of the panel's 4095). 
 (RequestPowerChange 0) sends level 0 and on, or the power button going down, restores it; the panel and the SoC are
 not put to sleep, so it saves the panel's power only. fb_measure=1 also says the panel link's mode and its refresh rate.
 
+## Apps without a graphics chip
+Settings > Notifications crashed in CoreImage (CI::GLContext::init, from MobileIcons scaling the apps' icons): apps
+have no GL driver here, and kCIContextUseSoftwareRenderer is not honoured on that road. userland/src/appicons.m draws
+those icons with Core Graphics instead; it is linked into libnodictation.dylib together with nodictation.c:
+`clang ... -fobjc-arc -dynamiclib -install_name /redwood/lib/libnodictation.dylib -framework Foundation -framework
+UIKit -framework CoreGraphics userland/src/nodictation.c userland/src/appicons.m`.
+Still open: Files > Safari stops itself ("cannot create a new browser dataSource without a source").
+
 ## Date
 Time zones: /usr/share/zoneinfo points into /private/var, which nothing had filled, and only Cupertino
 could be picked. The RAM image's etc/rc.jobs now runs /usr/libexec/tzinit (Apple's own, in the system
